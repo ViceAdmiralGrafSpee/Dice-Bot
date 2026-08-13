@@ -489,14 +489,23 @@ class ChatService:
 
             ai_response = result.content
 
-            if not ai_response:
+            # Python 会在最终回复开头展示一份权威工具结果。模型有时会先把同一
+            # 骰子式再抄一遍（例如“🎲 1d6 = 2”），这里仅移除这种独立成行的
+            # 开头复述，保留后续的人格化说明。
+            if ai_response and authoritative_outputs:
+                ai_response = self._remove_repeated_dice_result_lines(
+                    ai_response,
+                    _captured_tool_records,
+                )
+
+            if not ai_response and not authoritative_outputs:
                 log.warning(f"AI服务未返回回复（重试+故障转移均失败），跳过用户 {user_id}。")
                 return None
 
             # --- 新增：调用新的个人记忆服务 ---
             # 在获得AI回复后，记录这次对话并根据需要触发总结
             # 传递 current_model 使总结逻辑跟随主模型
-            if user_profile_data:
+            if user_profile_data and ai_response:
                 try:
                     await personal_memory_service.update_and_conditionally_summarize_memory(
                         user_id=user_id,
@@ -512,12 +521,16 @@ class ChatService:
                     )
 
             # 5. --- 后处理与格式化 ---
-            final_response = self._format_ai_response(ai_response)
+            final_response = self._format_ai_response(ai_response) if ai_response else ""
 
             # 数值和规则结算由 Python 锁定。LLM 只负责后续表述，不能覆盖结果。
             if authoritative_outputs:
                 authoritative_block = "\n".join(authoritative_outputs)
-                final_response = f"{authoritative_block}\n\n{final_response}"
+                final_response = (
+                    f"{authoritative_block}\n\n{final_response}"
+                    if final_response
+                    else authoritative_block
+                )
 
             # --- 为特定工具调用添加后缀 ---
             if _search_scopes and any(
@@ -548,6 +561,52 @@ class ChatService:
                     authoritative_outputs=authoritative_outputs,
                 )
             return ChatResult(content="抱歉，处理你的消息时出现了问题，请稍后再试。")
+
+    @staticmethod
+    def _remove_repeated_dice_result_lines(
+        ai_response: str,
+        captured_tool_records: List[Dict[str, Any]],
+    ) -> str:
+        """移除模型在回复开头重复输出的骰子结果行。"""
+        dice_results: List[tuple[str, str]] = []
+        for record in captured_tool_records:
+            if record.get("name") != "roll_dice":
+                continue
+            response = record.get("response")
+            if not isinstance(response, dict):
+                continue
+            result = response.get("result")
+            if not isinstance(result, dict):
+                continue
+            notation = result.get("notation")
+            total = result.get("total")
+            if isinstance(notation, str) and isinstance(total, (int, float)):
+                dice_results.append((notation, str(total)))
+
+        if not dice_results:
+            return ai_response
+
+        def is_repeated_result_line(line: str) -> bool:
+            normalized = "".join(line.lower().split()).strip("*_`")
+            if normalized.startswith("🎲"):
+                normalized = normalized[1:].strip("*_`")
+            normalized = normalized.rstrip("。.!！*_`")
+            return any(
+                normalized.startswith(
+                    f"{''.join(notation.lower().split())}="
+                )
+                and normalized.endswith(f"={total}")
+                for notation, total in dice_results
+            )
+
+        lines = ai_response.splitlines()
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and is_repeated_result_line(lines[0]):
+            lines.pop(0)
+            while lines and not lines[0].strip():
+                lines.pop(0)
+        return "\n".join(lines).lstrip()
 
     def _format_ai_response(self, ai_response: str) -> str:
         """清理和格式化AI的原始回复。"""

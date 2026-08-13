@@ -80,7 +80,12 @@ async def test_chat_keeps_python_result_even_if_llm_narration_fails(
         execute_tool_call=AsyncMock(
             return_value={
                 "ok": True,
-                "result": {"rolls": [4, 2], "modifier": 3, "total": 9},
+                "result": {
+                    "notation": "2d6+3",
+                    "rolls": [4, 2],
+                    "modifier": 3,
+                    "total": 9,
+                },
                 "authoritative_output": "🎲 2d6+3 = [4, 2] + 3 = 9",
             }
         ),
@@ -101,7 +106,9 @@ async def test_chat_keeps_python_result_even_if_llm_narration_fails(
         )
         if narration_fails:
             raise RuntimeError("narration unavailable")
-        return SimpleNamespace(content="骰子落定，这次结果是九点。")
+        return SimpleNamespace(
+            content="🎲 2d6+3 = 9\n骰子落定，这次结果是九点。"
+        )
 
     tool_service = SimpleNamespace(
         get_dynamic_tools_for_context=AsyncMock(return_value=[{"type": "function"}])
