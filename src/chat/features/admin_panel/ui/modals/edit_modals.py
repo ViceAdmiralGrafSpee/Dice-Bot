@@ -162,15 +162,15 @@ class EditCommunityMemberModal(discord.ui.Modal):
         )
         self.add_item(self.name_input)
 
-        # Discord ID - 从 discord_id 字段获取
-        discord_id = self.current_data.get("discord_id", "")
-        self.discord_id_input = discord.ui.TextInput(
+        # Discord ID - 从 user_id 字段获取
+        user_id = self.current_data.get("user_id", "")
+        self.user_id_input = discord.ui.TextInput(
             label="Discord ID",
-            default=str(discord_id),
+            default=str(user_id),
             max_length=20,
             required=True,
         )
-        self.add_item(self.discord_id_input)
+        self.add_item(self.user_id_input)
 
         # 性格特点
         self.personality_input = discord.ui.TextInput(
@@ -216,12 +216,12 @@ class EditCommunityMemberModal(discord.ui.Modal):
 
             # 从模态窗口的子组件中获取更新后的值
             updated_name = self.name_input.value.strip()
-            updated_discord_id = self.discord_id_input.value.strip()
+            updated_user_id = self.user_id_input.value.strip()
 
             # 构建完整的文本内容
             full_text = f"""
 名称: {updated_name}
-Discord ID: {updated_discord_id}
+Discord ID: {updated_user_id}
 性格特点: {self.personality_input.value.strip()}
 背景信息: {self.background_input.value.strip()}
 喜好偏好: {self.preferences_input.value.strip()}
@@ -230,7 +230,7 @@ Discord ID: {updated_discord_id}
             # 构建 source_metadata
             source_metadata = {
                 "name": updated_name,
-                "discord_id": updated_discord_id,
+                "user_id": updated_user_id,
                 "personality": self.personality_input.value.strip(),
                 "background": self.background_input.value.strip(),
                 "preferences": self.preferences_input.value.strip(),
@@ -241,12 +241,12 @@ Discord ID: {updated_discord_id}
             # 构建 SQL 更新语句（只支持 PostgreSQL/ParadeDB）
             sql = """
                 UPDATE community.member_profiles
-                SET title = %s, discord_id = %s, full_text = %s, source_metadata = %s, updated_at = NOW()
+                SET title = %s, user_id = %s, full_text = %s, source_metadata = %s, updated_at = NOW()
                 WHERE id = %s
             """
             params = (
                 updated_name,  # 存储纯名称，不加前缀
-                updated_discord_id,
+                updated_user_id,
                 full_text,
                 json.dumps(source_metadata, ensure_ascii=False),
                 self.item_id,

@@ -34,7 +34,7 @@ class ThreadCommentorService:
 
         # 1. 从世界书获取用户档案
         try:
-            profile_data = await world_book_service.get_profile_by_discord_id(user_id)
+            profile_data = await world_book_service.get_profile_by_user_id(user_id)
             if profile_data:
                 source_data = {}
                 source_metadata = profile_data.get("source_metadata")
@@ -70,7 +70,7 @@ class ThreadCommentorService:
         try:
             async with AsyncSessionLocal() as session:
                 stmt = select(CommunityMemberProfile.personal_summary).where(
-                    CommunityMemberProfile.discord_id == str(user_id)
+                    CommunityMemberProfile.user_id == str(user_id)
                 )
                 result = await session.execute(stmt)
                 summary = result.scalars().first()

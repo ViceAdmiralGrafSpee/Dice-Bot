@@ -23,7 +23,7 @@ DB_PATH = os.path.join(config.DATA_DIR, "world_book.sqlite3")
 class WorldBookService:
     """
     使用向量数据库进行语义搜索，以查找相关的世界书条目。
-    同时支持通过 Discord ID 直接从 SQLite 数据库查找用户档案。
+    同时支持通过平台用户 ID 从数据库查找用户档案。
     """
 
     def __init__(self, ai_svc):
@@ -43,8 +43,8 @@ class WorldBookService:
     async def find_entries(
         self,
         latest_query: str,
-        user_id: int,
-        guild_id: int,
+        user_id: str | int,
+        guild_id: str | int,
         user_name: str,  # 新增：接收提问者的名字
         conversation_history: Optional[List[Dict[str, Any]]] = None,
         n_results: int = chat_config.RAG_N_RESULTS_DEFAULT,
@@ -55,8 +55,8 @@ class WorldBookService:
 
         Args:
             latest_query: 用户最新的原始消息。
-            user_id: 用户的 Discord ID。
-            guild_id: 服务器的 Discord ID。
+            user_id: 平台提供的用户 ID。
+            guild_id: 群组或服务器的 ID。
             conversation_history: (可选) 用于生成查询的特定对话历史。
             n_results: 要返回的结果数量。
             max_distance: RAG 搜索的距离阈值，用于过滤不相关的结果。
@@ -150,7 +150,7 @@ class WorldBookService:
             name: 知识条目的名称
             content_text: 知识条目的内容文本
             category_name: 知识条目的类别名称
-            contributor_id: 贡献者的 Discord ID (可选)
+            contributor_id: 贡献者的用户 ID (可选)
 
         Returns:
             bool: 添加成功返回 True，否则返回 False
@@ -231,19 +231,19 @@ class WorldBookService:
             if cursor:
                 cursor.close()
 
-    async def get_profile_by_discord_id(
-        self, discord_id: int
+    async def get_profile_by_user_id(
+        self, user_id: str | int
     ) -> Optional[Dict[str, Any]]:
         """
-        通过 Discord ID 从 ParadeDB 的 community.member_profiles 表中获取用户档案。
+        通过平台提供的用户 ID 获取用户档案。
 
         Args:
-            discord_id: 用户的 Discord ID。
+            user_id: 平台提供的用户 ID；QQ/OneBot ID 可以直接传入。
 
         Returns:
             一个包含用户档案数据的字典，如果找不到则返回 None。
         """
-        log.info(f"正在从 ParadeDB 查询 discord_id 为 {discord_id} 的用户档案...")
+        log.info(f"正在从 ParadeDB 查询 user_id 为 {user_id} 的用户档案...")
         conn = incremental_rag_service._get_parade_connection()
         if not conn:
             log.error("ParadeDB 连接不可用，无法获取用户档案。")
@@ -258,24 +258,24 @@ class WorldBookService:
                 cursor.execute(
                     """
                     SELECT
-                        discord_id,
+                        user_id,
                         title,
                         personal_summary,
                         source_metadata
                     FROM community.member_profiles
-                    WHERE discord_id = %s
+                    WHERE user_id = %s
                     """,
-                    (str(discord_id),),  # 查询参数需要是元组
+                    (str(user_id),),  # 查询参数需要是元组
                 )
                 profile = cursor.fetchone()
 
             if profile:
-                log.info(f"成功找到 discord_id {discord_id} 的用户档案。")
+                log.info(f"成功找到 user_id {user_id} 的用户档案。")
                 # 将 RealDictRow 转换为普通字典以便序列化
                 return dict(profile)
             else:
                 log.warning(
-                    f"在 ParadeDB 中未找到 discord_id {discord_id} 的用户档案。"
+                    f"在 ParadeDB 中未找到 user_id {user_id} 的用户档案。"
                 )
                 return None
 

@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 
 
 class PersonalMemoryService:
-    async def check_and_create_block_before_reply(self, user_id: int) -> bool:
+    async def check_and_create_block_before_reply(self, user_id: str | int) -> bool:
         """
         在AI回复前检查是否需要创建对话块。
 
@@ -30,7 +30,7 @@ class PersonalMemoryService:
         这样RAG检索就能包含这些历史对话。
 
         Args:
-            user_id: 用户 Discord ID
+            user_id: 平台提供的用户 ID
 
         Returns:
             bool: 是否创建了新的对话块
@@ -43,7 +43,7 @@ class PersonalMemoryService:
         try:
             async with AsyncSessionLocal() as session:
                 stmt = select(CommunityMemberProfile).where(
-                    CommunityMemberProfile.discord_id == str(user_id)
+                    CommunityMemberProfile.user_id == str(user_id)
                 )
                 result = await session.execute(stmt)
                 profile = result.scalars().first()
@@ -65,13 +65,13 @@ class PersonalMemoryService:
                         async with AsyncSessionLocal() as block_session:
                             # 创建对话块（只保存最近的 block_size 条）
                             await conversation_block_service.create_block_from_history(
-                                discord_id=str(user_id),
+                                user_id=str(user_id),
                                 history=list(current_history),
                                 session=block_session,
                             )
                             # 清理旧的对话块
                             await conversation_block_service.cleanup_old_blocks(
-                                discord_id=str(user_id),
+                                user_id=str(user_id),
                                 session=block_session,
                             )
 
@@ -83,7 +83,7 @@ class PersonalMemoryService:
                             stmt_update = (
                                 update(CommunityMemberProfile)
                                 .where(
-                                    CommunityMemberProfile.discord_id == str(user_id)
+                                    CommunityMemberProfile.user_id == str(user_id)
                                 )
                                 .values(history=remaining_history)
                             )
@@ -112,7 +112,7 @@ class PersonalMemoryService:
 
     async def update_and_conditionally_summarize_memory(
         self,
-        user_id: int,
+        user_id: str | int,
         user_name: str,
         user_content: str,
         ai_response: str,
@@ -138,7 +138,7 @@ class PersonalMemoryService:
             async with session.begin():
                 stmt = (
                     select(CommunityMemberProfile)
-                    .where(CommunityMemberProfile.discord_id == str(user_id))
+                    .where(CommunityMemberProfile.user_id == str(user_id))
                     .with_for_update()
                 )
                 result = await session.execute(stmt)
@@ -172,7 +172,7 @@ class PersonalMemoryService:
 
     # --- [DISABLED] 印象总结功能（flash模型）已禁用 - 以下两个方法不再使用 ---
     # async def _check_and_summarize_blocks(
-    #     self, user_id: int, current_model: str | None = None
+    #     self, user_id: str | int, current_model: str | None = None
     # ):
     #     """方案E：检查是否有足够的未总结对话块，如果有2个则触发印象总结。"""
     #     (
@@ -189,7 +189,7 @@ class PersonalMemoryService:
 
     # async def _summarize_blocks(
     #     self,
-    #     user_id: int,
+    #     user_id: str | int,
     #     blocks: List[ConversationBlock],
     #     current_model: str | None = None,
     # ):
@@ -197,7 +197,7 @@ class PersonalMemoryService:
     #     log.info(f"开始为用户 {user_id} 从 {len(blocks)} 个对话块生成印象总结。")
     #     async with AsyncSessionLocal() as session:
     #         stmt = select(CommunityMemberProfile.personal_summary).where(
-    #             CommunityMemberProfile.discord_id == str(user_id)
+    #             CommunityMemberProfile.user_id == str(user_id)
     #         )
     #         result = await session.execute(stmt)
     #         old_summary = result.scalars().first() or "无"
@@ -260,11 +260,11 @@ class PersonalMemoryService:
     #         log.error(f"为用户 {user_id} 生成记忆摘要失败，AI 返回空。")
     # --- [DISABLED END] ---
 
-    async def get_memory_summary(self, user_id: int) -> str:
+    async def get_memory_summary(self, user_id: str | int) -> str:
         """根据用户ID从 ParadeDB 获取其个人记忆摘要。"""
         async with AsyncSessionLocal() as session:
             stmt = select(CommunityMemberProfile.personal_summary).where(
-                CommunityMemberProfile.discord_id == str(user_id)
+                CommunityMemberProfile.user_id == str(user_id)
             )
             result = await session.execute(stmt)
             summary = result.scalars().first()
@@ -277,7 +277,7 @@ class PersonalMemoryService:
                 return "该用户当前没有个人记忆摘要。"
 
     async def get_recent_chat_history(
-        self, user_id: int, limit: int = 10
+        self, user_id: str | int, limit: int = 10
     ) -> List[Dict]:
         """
         获取用户最近的聊天历史（尚未打包成对话块的消息）。
@@ -286,7 +286,7 @@ class PersonalMemoryService:
         返回的消息按时间顺序排列（从旧到新）。
 
         Args:
-            user_id: 用户 Discord ID
+            user_id: 平台提供的用户 ID
             limit: 最多返回的消息条数
 
         Returns:
@@ -294,7 +294,7 @@ class PersonalMemoryService:
         """
         async with AsyncSessionLocal() as session:
             stmt = select(CommunityMemberProfile.history).where(
-                CommunityMemberProfile.discord_id == str(user_id)
+                CommunityMemberProfile.user_id == str(user_id)
             )
             result = await session.execute(stmt)
             history = result.scalars().first()
@@ -305,7 +305,7 @@ class PersonalMemoryService:
             history_list = list(history)
             return history_list[-limit:] if len(history_list) > limit else history_list
 
-    async def update_summary_manually(self, user_id: int, new_summary: str):
+    async def update_summary_manually(self, user_id: str | int, new_summary: str):
         """
         仅手动更新用户的个人记忆摘要，不影响计数或历史记录。
         主要用于管理员手动编辑。
@@ -315,20 +315,22 @@ class PersonalMemoryService:
                 await self._update_summary(session, user_id, new_summary)
         log.info(f"为用户 {user_id} 手动更新了记忆摘要。")
 
-    async def _update_summary(self, session, user_id: int, new_summary: Optional[str]):
+    async def _update_summary(
+        self, session, user_id: str | int, new_summary: Optional[str]
+    ):
         """私有方法：只更新摘要。"""
         stmt = (
             update(CommunityMemberProfile)
-            .where(CommunityMemberProfile.discord_id == str(user_id))
+            .where(CommunityMemberProfile.user_id == str(user_id))
             .values(personal_summary=new_summary)
         )
         await session.execute(stmt)
 
-    async def _reset_history_and_count(self, session, user_id: int):
+    async def _reset_history_and_count(self, session, user_id: str | int):
         """私有方法：只重置计数和历史。"""
         stmt = (
             update(CommunityMemberProfile)
-            .where(CommunityMemberProfile.discord_id == str(user_id))
+            .where(CommunityMemberProfile.user_id == str(user_id))
             .values(
                 personal_message_count=0,
                 history=[],
@@ -337,7 +339,7 @@ class PersonalMemoryService:
         await session.execute(stmt)
 
     async def update_summary_and_reset_history(
-        self, user_id: int, new_summary: Optional[str]
+        self, user_id: str | int, new_summary: Optional[str]
     ):
         """
         在 ParadeDB 中更新摘要，同时重置个人消息计数和对话历史。
@@ -349,7 +351,7 @@ class PersonalMemoryService:
                 await self._reset_history_and_count(session, user_id)
         log.info(f"为用户 {user_id} 更新了记忆摘要，并重置了计数和历史。")
 
-    async def clear_personal_memory(self, user_id: int):
+    async def clear_personal_memory(self, user_id: str | int):
         """
         清除指定用户的个人记忆摘要、对话历史和消息计数。
         """
@@ -357,7 +359,7 @@ class PersonalMemoryService:
         await self.update_summary_and_reset_history(user_id, None)
         log.info(f"用户 {user_id} 的个人记忆已清除。")
 
-    async def reset_memory_and_delete_history(self, user_id: int):
+    async def reset_memory_and_delete_history(self, user_id: str | int):
         """
         删除对话记录并重置记忆。
         这会清除用户的个人记忆摘要，并删除所有相关的对话历史记录。
@@ -366,7 +368,7 @@ class PersonalMemoryService:
         await self.update_summary_and_reset_history(user_id, None)
         log.info(f"用户 {user_id} 的记忆和对话历史已清除。")
 
-    async def delete_conversation_history(self, user_id: int):
+    async def delete_conversation_history(self, user_id: str | int):
         """
         单纯删除对话记录。
         这仅删除指定用户的对话历史记录和重置消息计数，不影响其个人记忆摘要。

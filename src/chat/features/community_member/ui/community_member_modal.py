@@ -35,13 +35,13 @@ class CommunityMemberUploadModal(
         self.add_item(self.member_name_input)
 
         # Discord ID输入框
-        self.discord_id_input = discord.ui.TextInput(
+        self.user_id_input = discord.ui.TextInput(
             label="Discord ID",
             placeholder="请输入成员的Discord数字ID（必填）",
             max_length=20,
             required=True,
         )
-        self.add_item(self.discord_id_input)
+        self.add_item(self.user_id_input)
 
         # 性格特点输入框
         self.personality_input = discord.ui.TextInput(
@@ -87,13 +87,13 @@ class CommunityMemberUploadModal(
     async def on_submit(self, interaction: discord.Interaction):
         """当用户提交模态窗口时调用"""
         member_name = self.member_name_input.value.strip()
-        discord_id = self.discord_id_input.value.strip()
+        user_id = self.user_id_input.value.strip()
         personality = self.personality_input.value.strip()
         background = self.background_input.value.strip()
         preferences = self.preferences_input.value.strip()
 
         # 首先进行输入验证
-        if discord_id and not discord_id.isdigit():
+        if user_id and not user_id.isdigit():
             await interaction.response.send_message(
                 "❌ Discord ID 必须为纯数字，请重新提交。", ephemeral=True
             )
@@ -134,7 +134,7 @@ class CommunityMemberUploadModal(
 
         member_data = {
             "name": member_name,
-            "discord_id": discord_id if discord_id else None,
+            "user_id": user_id if user_id else None,
             "personality": personality,
             "background": background if background else "未提供",
             "preferences": preferences if preferences else "未提供",
@@ -144,12 +144,12 @@ class CommunityMemberUploadModal(
 
         conn = self._get_world_book_connection()
         existing_entry_id = None
-        if conn and discord_id:
+        if conn and user_id:
             try:
                 cursor = conn.cursor()
                 cursor.execute(
                     "SELECT id FROM community_members WHERE discord_number_id = ? AND status = 'approved'",
-                    (discord_id,),
+                    (user_id,),
                 )
                 row = cursor.fetchone()
                 if row:
@@ -163,9 +163,9 @@ class CommunityMemberUploadModal(
         embed_fields = [
             {"name": "成员名称", "value": member_name, "inline": True},
         ]
-        if discord_id:
+        if user_id:
             embed_fields.append(
-                {"name": "Discord ID", "value": discord_id, "inline": True}
+                {"name": "Discord ID", "value": user_id, "inline": True}
             )
         embed_fields.append(
             {

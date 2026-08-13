@@ -100,11 +100,11 @@ class SearchUserModal(discord.ui.Modal):
         try:
             cursor = db_services.get_cursor(conn)
             cursor.execute(
-                "SELECT id, discord_id FROM community.member_profiles ORDER BY id DESC"
+                "SELECT id, user_id FROM community.member_profiles ORDER BY id DESC"
             )
             all_users = cursor.fetchall()
             for i, user in enumerate(all_users):
-                if str(user["discord_id"]) == user_id_str:
+                if str(user["user_id"]) == user_id_str:
                     target_index = i
                     target_user_db_id = user["id"]
                     break

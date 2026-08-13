@@ -27,7 +27,7 @@ def _parse_raw_profile_data(raw_data: Mapping[str, Any]) -> Dict[str, Any]:
                     key, value = line.split(": ", 1)
                     key_map = {
                         "名称": "name",
-                        "Discord ID": "discord_id",
+                        "Discord ID": "user_id",
                         "性格特点": "personality",
                         "背景信息": "background",
                         "喜好偏好": "preferences",
@@ -74,7 +74,7 @@ def _parse_raw_profile_data(raw_data: Mapping[str, Any]) -> Dict[str, Any]:
     # 最后的保障：从顶层字段获取
     return {
         "name": raw_data.get("title", ""),
-        "discord_id": raw_data.get("discord_id", ""),
+        "user_id": raw_data.get("user_id", ""),
         "personality": "",
         "background": "",
         "preferences": "",
@@ -91,14 +91,14 @@ def format_member_profile(raw_data: Mapping[str, Any]) -> Dict[str, Any]:
     parsed_data = _parse_raw_profile_data(raw_data)
 
     name = parsed_data.get("name", "").strip()
-    discord_id = str(parsed_data.get("discord_id", "")).strip()
+    user_id = str(parsed_data.get("user_id", "")).strip()
     personality = parsed_data.get("personality", "").strip()
     background = parsed_data.get("background", "").strip()
     preferences = parsed_data.get("preferences", "").strip()
 
     # 2. 重建干净的 full_text
     formatted_full_text = f"""名称: {name}
-Discord ID: {discord_id}
+Discord ID: {user_id}
 性格特点: {personality}
 背景信息: {background}
 喜好偏好: {preferences}""".strip()
@@ -106,7 +106,7 @@ Discord ID: {discord_id}
     # 3. 重建干净的 source_metadata (作为字典)
     formatted_source_metadata = {
         "name": name,
-        "discord_id": discord_id,
+        "user_id": user_id,
         "personality": personality,
         "background": background,
         "preferences": preferences,

@@ -354,7 +354,7 @@ async def _get_user_summary_data(user_id: int, year: int) -> Dict[str, Any] | No
         async with AsyncSessionLocal() as session:
             profile_result = await session.execute(
                 select(CommunityMemberProfile.personal_summary).where(
-                    CommunityMemberProfile.discord_id == uid
+                    CommunityMemberProfile.user_id == uid
                 )
             )
             personal_summary = profile_result.scalars().first()

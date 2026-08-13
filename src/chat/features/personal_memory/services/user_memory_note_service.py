@@ -65,7 +65,7 @@ def validate_memory_content(category: str, content: str) -> Tuple[bool, str]:
 
 class UserMemoryNoteService:
     async def has_profile(self, user_id: str) -> bool:
-        profile = await world_book_service.get_profile_by_discord_id(int(user_id))
+        profile = await world_book_service.get_profile_by_user_id(user_id)
         return profile is not None
 
     async def get_notes_for_user(self, user_id: str) -> List[UserMemoryNote]:

@@ -174,7 +174,7 @@ class ConversationBlockService:
 
     async def create_block_from_history(
         self,
-        discord_id: str,
+        user_id: str,
         history: List[Dict],
         session: Optional[AsyncSession] = None,
     ) -> Optional[int]:
@@ -182,7 +182,7 @@ class ConversationBlockService:
         从对话历史创建对话块。
 
         Args:
-            discord_id: 用户 Discord ID
+            user_id: 平台提供的用户 ID
             history: 对话历史列表
             session: 可选的数据库会话
 
@@ -190,7 +190,7 @@ class ConversationBlockService:
             创建的对话块 ID，失败返回 None
         """
         if not history:
-            log.warning(f"用户 {discord_id} 的对话历史为空，跳过创建对话块")
+            log.warning(f"用户 {user_id} 的对话历史为空，跳过创建对话块")
             return None
 
         block_size = self.config.get("block_size", 10)
@@ -198,7 +198,7 @@ class ConversationBlockService:
         # 检查历史长度是否达到阈值
         if len(history) < block_size:
             log.debug(
-                f"用户 {discord_id} 的对话历史长度 {len(history)} < {block_size}，跳过创建"
+                f"用户 {user_id} 的对话历史长度 {len(history)} < {block_size}，跳过创建"
             )
             return None
 
@@ -218,7 +218,7 @@ class ConversationBlockService:
                 text=conversation_text, task_type="retrieval_document"
             )
             if not embedding:
-                log.error(f"用户 {discord_id} 的对话块嵌入生成失败")
+                log.error(f"用户 {user_id} 的对话块嵌入生成失败")
                 return None
         except Exception as e:
             log.error(f"生成对话块嵌入时出错: {e}", exc_info=True)
@@ -232,7 +232,7 @@ class ConversationBlockService:
             embedding_col = await get_embedding_column()
 
             block = ConversationBlock(
-                discord_id=discord_id,
+                user_id=user_id,
                 conversation_text=conversation_text,
                 start_time=start_time,
                 end_time=end_time,
@@ -250,7 +250,7 @@ class ConversationBlockService:
             await sess.refresh(block)
 
             log.info(
-                f"用户 {discord_id} 创建对话块成功: id={block.id}, "
+                f"用户 {user_id} 创建对话块成功: id={block.id}, "
                 f"messages={len(history_to_store)}, time_range={start_time} ~ {end_time}"
             )
             return block.id
@@ -261,12 +261,12 @@ class ConversationBlockService:
             async with AsyncSessionLocal() as sess:
                 return await _create_block(sess)
 
-    async def get_user_block_count(self, discord_id: str) -> int:
+    async def get_user_block_count(self, user_id: str) -> int:
         """
         获取用户的对话块数量。
 
         Args:
-            discord_id: 用户 Discord ID
+            user_id: 平台提供的用户 ID
 
         Returns:
             对话块数量
@@ -274,19 +274,19 @@ class ConversationBlockService:
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(func.count(ConversationBlock.id)).where(
-                    ConversationBlock.discord_id == discord_id
+                    ConversationBlock.user_id == user_id
                 )
             )
             return result.scalar() or 0
 
     async def cleanup_old_blocks(
-        self, discord_id: str, session: Optional[AsyncSession] = None
+        self, user_id: str, session: Optional[AsyncSession] = None
     ) -> int:
         """
         清理用户的旧对话块，保留最新的 max_blocks_per_user 个。
 
         Args:
-            discord_id: 用户 Discord ID
+            user_id: 平台提供的用户 ID
             session: 可选的数据库会话
 
         Returns:
@@ -298,7 +298,7 @@ class ConversationBlockService:
             # 获取用户的所有对话块 ID，按开始时间降序
             result = await sess.execute(
                 select(ConversationBlock.id)
-                .where(ConversationBlock.discord_id == discord_id)
+                .where(ConversationBlock.user_id == user_id)
                 .order_by(ConversationBlock.start_time.desc())
             )
             all_ids = [row[0] for row in result.fetchall()]
@@ -313,7 +313,7 @@ class ConversationBlockService:
             )
 
             log.info(
-                f"用户 {discord_id} 清理了 {len(ids_to_delete)} 个旧对话块，"
+                f"用户 {user_id} 清理了 {len(ids_to_delete)} 个旧对话块，"
                 f"保留 {max_blocks} 个"
             )
             return len(ids_to_delete)
@@ -325,13 +325,13 @@ class ConversationBlockService:
                 return await _cleanup(sess)
 
     async def delete_all_user_blocks(
-        self, discord_id: str, session: Optional[AsyncSession] = None
+        self, user_id: str, session: Optional[AsyncSession] = None
     ) -> int:
         """
         删除用户的所有对话块（用于用户注销等场景）。
 
         Args:
-            discord_id: 用户 Discord ID
+            user_id: 平台提供的用户 ID
             session: 可选的数据库会话
 
         Returns:
@@ -341,12 +341,12 @@ class ConversationBlockService:
         async def _delete_all(sess: AsyncSession) -> int:
             result = await sess.execute(
                 delete(ConversationBlock)
-                .where(ConversationBlock.discord_id == discord_id)
+                .where(ConversationBlock.user_id == user_id)
                 .returning(ConversationBlock.id)
             )
             deleted_rows = result.fetchall()
             deleted_count = len(deleted_rows)
-            log.info(f"用户 {discord_id} 删除了所有 {deleted_count} 个对话块")
+            log.info(f"用户 {user_id} 删除了所有 {deleted_count} 个对话块")
             return deleted_count
 
         if session:
@@ -357,14 +357,14 @@ class ConversationBlockService:
                 await sess.commit()
                 return result
 
-    async def get_latest_block_id(self, discord_id: str) -> Optional[int]:
+    async def get_latest_block_id(self, user_id: str) -> Optional[int]:
         """
         获取用户最新的对话块 ID。
 
         用于在 RAG 检索时排除最新的对话块，避免与当前对话历史重复。
 
         Args:
-            discord_id: 用户 Discord ID
+            user_id: 平台提供的用户 ID
 
         Returns:
             最新对话块的 ID，如果没有对话块则返回 None
@@ -372,23 +372,23 @@ class ConversationBlockService:
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(ConversationBlock.id)
-                .where(ConversationBlock.discord_id == discord_id)
+                .where(ConversationBlock.user_id == user_id)
                 .order_by(ConversationBlock.start_time.desc())
                 .limit(1)
             )
             row = result.scalar_one_or_none()
             if row:
-                log.debug(f"用户 {discord_id} 最新的对话块 ID: {row}")
+                log.debug(f"用户 {user_id} 最新的对话块 ID: {row}")
             return row
 
-    async def get_latest_block_content(self, discord_id: str) -> Optional[Dict]:
+    async def get_latest_block_content(self, user_id: str) -> Optional[Dict]:
         """
         获取用户最新对话块的完整内容。
 
         用于作为三层记忆的第三层（最新对话），注入到 prompt 中。
 
         Args:
-            discord_id: 用户 Discord ID
+            user_id: 平台提供的用户 ID
 
         Returns:
             包含对话块信息的字典，包括：
@@ -403,20 +403,20 @@ class ConversationBlockService:
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(ConversationBlock)
-                .where(ConversationBlock.discord_id == discord_id)
+                .where(ConversationBlock.user_id == user_id)
                 .order_by(ConversationBlock.start_time.desc())
                 .limit(1)
             )
             block = result.scalar_one_or_none()
 
             if not block:
-                log.debug(f"用户 {discord_id} 没有对话块")
+                log.debug(f"用户 {user_id} 没有对话块")
                 return None
 
             time_desc = format_time_description(block.start_time, block.end_time)
 
             log.debug(
-                f"用户 {discord_id} 获取最新对话块: id={block.id}, "
+                f"用户 {user_id} 获取最新对话块: id={block.id}, "
                 f"messages={block.message_count}, time={time_desc}"
             )
 
@@ -431,14 +431,14 @@ class ConversationBlockService:
 
     # --- [DISABLED] 印象总结功能（flash模型）已禁用 - 以下三个方法不再使用 ---
     # async def get_unsummarized_blocks(
-    #     self, discord_id: str, session: Optional[AsyncSession] = None
+    #     self, user_id: str, session: Optional[AsyncSession] = None
     # ) -> List[ConversationBlock]:
     #     """获取用户未被总结的对话块。用于方案E：每2个新块触发一次印象总结。"""
     #     async def _get_blocks(sess: AsyncSession) -> List[ConversationBlock]:
     #         result = await sess.execute(
     #             select(ConversationBlock)
     #             .where(
-    #                 ConversationBlock.discord_id == discord_id,
+    #                 ConversationBlock.user_id == user_id,
     #                 ConversationBlock.summarized == 0,
     #             )
     #             .order_by(ConversationBlock.start_time.asc())
@@ -477,33 +477,33 @@ class ConversationBlockService:
 
     # async def get_blocks_for_summary(
     #     self,
-    #     discord_id: str,
+    #     user_id: str,
     #     session: Optional[AsyncSession] = None,
     # ) -> tuple[List[ConversationBlock], bool]:
     #     """检查是否有足够的未总结对话块，如果达到阈值则返回最早的对应对话块。用于方案E。"""
     #     summary_trigger = self.config.get("summary_trigger_blocks", 2)
-    #     unsummarized = await self.get_unsummarized_blocks(discord_id, session)
+    #     unsummarized = await self.get_unsummarized_blocks(user_id, session)
     #     if len(unsummarized) >= summary_trigger:
     #         blocks_to_summarize = unsummarized[:summary_trigger]
     #         log.info(
-    #             f"用户 {discord_id} 有 {len(unsummarized)} 个未总结的对话块，"
+    #             f"用户 {user_id} 有 {len(unsummarized)} 个未总结的对话块，"
     #             f"将总结最早的 {summary_trigger} 个: {[b.id for b in blocks_to_summarize]}"
     #         )
     #         return blocks_to_summarize, True
     #     else:
     #         log.debug(
-    #             f"用户 {discord_id} 有 {len(unsummarized)} 个未总结的对话块，"
+    #             f"用户 {user_id} 有 {len(unsummarized)} 个未总结的对话块，"
     #             f"暂不触发总结（需要至少 {summary_trigger} 个）"
     #         )
     #         return [], False
     # --- [DISABLED END] ---
 
-    async def get_user_blocks(self, discord_id: str) -> List[Dict]:
+    async def get_user_blocks(self, user_id: str) -> List[Dict]:
         """
         获取用户的所有对话块（用于用户视图）。
 
         Args:
-            discord_id: 用户 Discord ID
+            user_id: 平台提供的用户 ID
 
         Returns:
             对话块字典列表，按开始时间降序排列
@@ -511,7 +511,7 @@ class ConversationBlockService:
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(ConversationBlock)
-                .where(ConversationBlock.discord_id == discord_id)
+                .where(ConversationBlock.user_id == user_id)
                 .order_by(ConversationBlock.start_time.desc())
             )
             blocks = result.scalars().all()
@@ -519,7 +519,7 @@ class ConversationBlockService:
             return [
                 {
                     "id": block.id,
-                    "discord_id": block.discord_id,
+                    "user_id": block.user_id,
                     "conversation_text": block.conversation_text,
                     "message_count": block.message_count,
                     "start_time": block.start_time,
@@ -554,11 +554,11 @@ class ConversationBlockService:
                 return True
             return False
 
-    async def delete_recent_blocks(self, discord_id: str, count: int) -> int:
+    async def delete_recent_blocks(self, user_id: str, count: int) -> int:
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(ConversationBlock.id)
-                .where(ConversationBlock.discord_id == discord_id)
+                .where(ConversationBlock.user_id == user_id)
                 .order_by(ConversationBlock.start_time.desc())
                 .limit(count)
             )
@@ -575,12 +575,12 @@ class ConversationBlockService:
             await session.commit()
 
             log.info(
-                f"用户 {discord_id} 删除了 {len(ids_to_delete)} 个最近对话块"
+                f"用户 {user_id} 删除了 {len(ids_to_delete)} 个最近对话块"
             )
             return len(ids_to_delete)
 
     async def delete_blocks_within_minutes(
-        self, discord_id: str, minutes: int
+        self, user_id: str, minutes: int
     ) -> int:
         from datetime import timedelta
 
@@ -590,7 +590,7 @@ class ConversationBlockService:
             result = await session.execute(
                 delete(ConversationBlock)
                 .where(
-                    ConversationBlock.discord_id == discord_id,
+                    ConversationBlock.user_id == user_id,
                     ConversationBlock.start_time >= cutoff,
                 )
                 .returning(ConversationBlock.id)
@@ -599,7 +599,7 @@ class ConversationBlockService:
             await session.commit()
 
             log.info(
-                f"用户 {discord_id} 删除了 {len(deleted_rows)} 个最近 {minutes} 分钟内的对话块"
+                f"用户 {user_id} 删除了 {len(deleted_rows)} 个最近 {minutes} 分钟内的对话块"
             )
             return len(deleted_rows)
 

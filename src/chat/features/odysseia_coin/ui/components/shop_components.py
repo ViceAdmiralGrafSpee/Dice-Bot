@@ -1234,7 +1234,7 @@ class ToolSettingsView(discord.ui.View):
 
         async with AsyncSessionLocal() as session:
             stmt = select(CommunityMemberProfile).where(
-                CommunityMemberProfile.discord_id == str(user.id)
+                CommunityMemberProfile.user_id == str(user.id)
             )
             result = await session.execute(stmt)
             profile = result.scalars().first()

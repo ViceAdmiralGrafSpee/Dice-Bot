@@ -55,7 +55,7 @@ class ConversationMemorySearchService:
     async def _hybrid_search_blocks(
         self,
         session,
-        discord_id: str,
+        user_id: str,
         query_text: str,
         query_vector: List[float],
         exclude_block_ids: Optional[List[int]] = None,
@@ -66,7 +66,7 @@ class ConversationMemorySearchService:
 
         Args:
             session: 数据库会话
-            discord_id: 用户 Discord ID
+            user_id: 平台提供的用户 ID
             query_text: 查询文本
             query_vector: 查询向量
             exclude_block_ids: 要排除的对话块 ID 列表
@@ -85,7 +85,7 @@ class ConversationMemorySearchService:
         max_vector_distance = self.config.get("max_vector_distance", 0.65)
 
         log.info(
-            f"[对话记忆搜索] 用户: {discord_id} | Embedding模型: {embedding_model} | "
+            f"[对话记忆搜索] 用户: {user_id} | Embedding模型: {embedding_model} | "
             f"搜索模式: 混合搜索 (向量 + BM25) | 向量列: {embedding_col} | "
             f"TOP_K_VECTOR: {top_k_vector} | TOP_K_FTS: {top_k_fts} | "
             f"RRF_K: {rrf_k} | FINAL_K: {final_k} | MAX_DISTANCE: {max_vector_distance} | "
@@ -108,7 +108,7 @@ class ConversationMemorySearchService:
                     {embedding_col} <=> CAST(:query_vector AS halfvec) as vector_distance,
                     RANK() OVER (ORDER BY {embedding_col} <=> CAST(:query_vector AS halfvec)) as rank
                 FROM conversation.conversation_blocks
-                WHERE discord_id = :discord_id
+                WHERE user_id = :user_id
                   AND {embedding_col} IS NOT NULL
                   {exclude_clause}
                 ORDER BY {embedding_col} <=> CAST(:query_vector AS halfvec)
@@ -119,7 +119,7 @@ class ConversationMemorySearchService:
                     id,
                     RANK() OVER (ORDER BY paradedb.score(id) DESC) as rank
                 FROM conversation.conversation_blocks
-                WHERE discord_id = :discord_id
+                WHERE user_id = :user_id
                   AND conversation_text @@@ :query_text
                   {exclude_clause}
                 LIMIT :top_k_fts
@@ -134,7 +134,7 @@ class ConversationMemorySearchService:
             )
             SELECT
                 cb.id,
-                cb.discord_id,
+                cb.user_id,
                 cb.conversation_text,
                 cb.start_time,
                 cb.end_time,
@@ -153,7 +153,7 @@ class ConversationMemorySearchService:
             result = await session.execute(
                 sql_query,
                 {
-                    "discord_id": discord_id,
+                    "user_id": user_id,
                     "query_text": query_text,
                     "query_vector": str(query_vector),
                     "top_k_vector": top_k_vector,
@@ -183,7 +183,7 @@ class ConversationMemorySearchService:
 
     async def search(
         self,
-        discord_id: str,
+        user_id: str,
         query: str,
         exclude_block_ids: Optional[List[int]] = None,
     ) -> List[Dict[str, Any]]:
@@ -191,7 +191,7 @@ class ConversationMemorySearchService:
         检索与当前查询相关的历史对话块。
 
         Args:
-            discord_id: 用户 Discord ID
+            user_id: 平台提供的用户 ID
             query: 用户当前的输入
             exclude_block_ids: 要排除的对话块 ID 列表（如刚创建的块）
 
@@ -205,7 +205,7 @@ class ConversationMemorySearchService:
             - rrf_score: 相关性分数
         """
         log.info(
-            f"收到对话记忆搜索请求: 用户={discord_id}, 查询='{query[:50]}...', 排除块={exclude_block_ids}"
+            f"收到对话记忆搜索请求: 用户={user_id}, 查询='{query[:50]}...', 排除块={exclude_block_ids}"
         )
 
         # 检查是否启用对话记忆
@@ -238,7 +238,7 @@ class ConversationMemorySearchService:
             async with AsyncSessionLocal() as session:
                 search_results = await self._hybrid_search_blocks(
                     session,
-                    discord_id,
+                    user_id,
                     cleaned_query,
                     query_embedding,
                     exclude_block_ids,
