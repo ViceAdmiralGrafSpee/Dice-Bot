@@ -5,7 +5,9 @@ import pytest
 
 from src.qq_bot import (
     DEFAULT_QQ_AI_MODEL,
+    QQBotSettings,
     QQConfigurationError,
+    initialize_qq_chat_core,
     load_qq_settings,
     process_onebot_events,
 )
@@ -81,3 +83,50 @@ async def test_one_failed_event_does_not_stop_later_messages() -> None:
 
     assert handler.await_count == 2
     assert handler.await_args_list[1].args == (client, events[1], chat_core)
+
+
+@pytest.mark.asyncio
+async def test_qq_runtime_uses_environment_ai_when_postgres_is_absent(
+    monkeypatch,
+) -> None:
+    from src.chat.services.ai.service import ai_service
+    from src.chat.services.chat_service import chat_service
+    from src.chat.utils.database import chat_db_manager
+    from src.chat.features.world_book.database.world_book_db_manager import (
+        world_book_db_manager,
+    )
+    import src.database.database as database_module
+
+    monkeypatch.setattr(chat_db_manager, "init_async", AsyncMock())
+    monkeypatch.setattr(world_book_db_manager, "init_async", AsyncMock())
+    monkeypatch.setattr(
+        database_module,
+        "optional_chat_database_is_ready",
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(ai_service, "set_tools", lambda *_args: None)
+    monkeypatch.setattr(chat_service, "_optional_postgres_enabled", True)
+    initialize_without_database = AsyncMock()
+    monkeypatch.setattr(
+        ai_service,
+        "initialize_without_database",
+        initialize_without_database,
+    )
+    initialize_with_database = AsyncMock()
+    monkeypatch.setattr(ai_service, "initialize", initialize_with_database)
+    monkeypatch.setattr(
+        ai_service,
+        "parse_model_id",
+        lambda _model: ("deepseek-chat", "deepseek"),
+    )
+    monkeypatch.setattr(ai_service, "get_provider_for_model", lambda *_args: object())
+    monkeypatch.setattr(chat_db_manager, "set_global_setting", AsyncMock())
+
+    core = await initialize_qq_chat_core(
+        QQBotSettings("ws://127.0.0.1:3001", "token")
+    )
+
+    assert core is chat_service
+    assert chat_service._optional_postgres_enabled is False
+    initialize_without_database.assert_awaited_once_with()
+    initialize_with_database.assert_not_awaited()

@@ -51,6 +51,38 @@ class ChatService:
     负责编排整个AI聊天响应流程。
     """
 
+    def __init__(self) -> None:
+        # Discord deployments historically require PostgreSQL. Lightweight
+        # adapters can explicitly disable these optional legacy features.
+        self._optional_postgres_enabled = True
+
+    def set_optional_postgres_enabled(self, enabled: bool) -> None:
+        self._optional_postgres_enabled = enabled
+        if not enabled:
+            log.info("未检测到完整 PostgreSQL 数据库；已跳过档案、记忆、好感度和币功能。")
+
+    async def _load_optional_user_context(
+        self,
+        user_id: str | int,
+        numeric_user_id: int,
+    ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], str]:
+        """Load PostgreSQL-backed context, or use neutral chat defaults."""
+
+        if not self._optional_postgres_enabled:
+            return None, None, "default"
+
+        try:
+            profile = await world_book_service.get_profile_by_user_id(user_id)
+            affection = await affection_service.get_affection_status(numeric_user_id)
+            persona = await persona_preference_service.get_persona_style(str(user_id))
+            return profile, affection, persona
+        except Exception as error:
+            log.warning(
+                "PostgreSQL 用户功能暂时不可用，本条消息使用默认上下文：%s",
+                error,
+            )
+            return None, None, "default"
+
     async def should_process_message(
         self, request: PlatformRequestContext
     ) -> bool:
@@ -74,7 +106,7 @@ class ChatService:
             # 检查是否满足通行许可的例外条件
             pass_is_granted = False
             thread = message.conversation.thread
-            if thread and thread.owner_id:
+            if self._optional_postgres_enabled and thread and thread.owner_id:
                 # 修正逻辑：只有当帖主明确设置了个人CD时，才算拥有"通行许可"
                 owner_id = int(thread.owner_id)
                 owner_config = await coin_service.get_thread_cooldown_settings(owner_id)
@@ -149,8 +181,12 @@ class ChatService:
         else:
             location_name = message.conversation.name
 
-        # --- 个人记忆消息计数 ---
-        user_profile_data = await world_book_service.get_profile_by_user_id(user_id)
+        # PostgreSQL 是可选增强项；无数据库时仍可进行基础 AI 对话。
+        (
+            user_profile_data,
+            affection_status,
+            persona_style,
+        ) = await self._load_optional_user_context(user_id, numeric_user_id)
 
         user_content = message.text
         replied_content = (
@@ -182,14 +218,6 @@ class ChatService:
                     user_id=user_id
                 )
 
-            # --- 新增：集中获取所有上下文数据 ---
-            affection_status = await affection_service.get_affection_status(
-                numeric_user_id
-            )
-            persona_style = await persona_preference_service.get_persona_style(
-                str(user_id)
-            )
-
             # 获取记忆笔记（仅对有名片用户）
             memory_notes_text = None
             if user_profile_data:
@@ -211,18 +239,21 @@ class ChatService:
                     log.error(f"获取用户 {user_id} 最近聊天历史失败: {hist_e}")
 
             # 3. --- 好感度与奖励更新（前置） ---
-            try:
-                # 在生成回复前更新好感度，以确保日志顺序正确
-                await affection_service.increase_affection_on_message(numeric_user_id)
-            except Exception as aff_e:
-                log.error(f"增加用户 {user_id} 的好感度时出错: {aff_e}")
+            if self._optional_postgres_enabled:
+                try:
+                    # 在生成回复前更新好感度，以确保日志顺序正确
+                    await affection_service.increase_affection_on_message(
+                        numeric_user_id
+                    )
+                except Exception as aff_e:
+                    log.error(f"增加用户 {user_id} 的好感度时出错: {aff_e}")
 
-            try:
-                # 发放每日首次对话奖励
-                if await coin_service.grant_daily_message_reward(numeric_user_id):
-                    log.info(f"已为用户 {user_id} 发放每日首次对话奖励。")
-            except Exception as coin_e:
-                log.error(f"为用户 {user_id} 发放每日对话奖励时出错: {coin_e}")
+                try:
+                    # 发放每日首次对话奖励
+                    if await coin_service.grant_daily_message_reward(numeric_user_id):
+                        log.info(f"已为用户 {user_id} 发放每日首次对话奖励。")
+                except Exception as coin_e:
+                    log.error(f"为用户 {user_id} 发放每日对话奖励时出错: {coin_e}")
 
             # 4. --- 调用AI生成回复 ---
             # 记录发送给AI的核心上下文

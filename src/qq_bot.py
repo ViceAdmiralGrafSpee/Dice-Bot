@@ -128,13 +128,20 @@ async def initialize_qq_chat_core(settings: QQBotSettings) -> ChatCore:
     from src.chat.services.ai.service import ai_service
     from src.chat.services.chat_service import chat_service
     from src.chat.utils.database import chat_db_manager
+    from src.database.database import optional_chat_database_is_ready
 
     await chat_db_manager.init_async()
     await world_book_db_manager.init_async()
 
     no_tools = NoToolsService()
     ai_service.set_tools([], {}, no_tools)
-    await ai_service.initialize()
+
+    postgres_ready = await optional_chat_database_is_ready()
+    chat_service.set_optional_postgres_enabled(postgres_ready)
+    if postgres_ready:
+        await ai_service.initialize()
+    else:
+        await ai_service.initialize_without_database()
 
     model_name, provider_name = ai_service.parse_model_id(settings.ai_model)
     if ai_service.get_provider_for_model(model_name, provider_name) is None:
