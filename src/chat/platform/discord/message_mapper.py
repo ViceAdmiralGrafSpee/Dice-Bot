@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import logging
+import re
 from typing import Any
 
 import discord
@@ -16,6 +18,8 @@ from src.chat.platform.models import (
     ThreadContext,
 )
 
+log = logging.getLogger(__name__)
+
 
 def _optional_id(value: Any) -> str | None:
     return str(value) if value is not None else None
@@ -25,6 +29,24 @@ def _display_name(value: Any) -> str | None:
     if value is None:
         return None
     return getattr(value, "display_name", None) or getattr(value, "name", None)
+
+
+def _normalize_discord_text(text: str, guild: discord.Guild | None) -> str:
+    """Apply the Discord text cleanup previously performed inside prompts."""
+
+    text = text.replace("\\_", "_")
+    text = re.sub(r"https?://cdn\.discordapp\.com\S+", "", text)
+
+    if guild:
+
+        def replace_mention(match: re.Match[str]) -> str:
+            member = guild.get_member(int(match.group(1)))
+            return f"@{member.display_name}" if member else "@未知用户"
+
+        text = re.sub(r"<@!?(\d+)>", replace_mention, text)
+
+    text = re.sub(r"<a?:\w+:\d+>", "", text)
+    return text.strip()
 
 
 def _map_images(processed_data: Mapping[str, Any]) -> tuple[MessageImage, ...]:
@@ -54,11 +76,13 @@ def _map_reply(
         message_id=str(reply_id),
         user_id=_optional_id(getattr(cached_author, "id", None)),
         user_name=_display_name(cached_author),
-        text=processed_data.get("replied_content", ""),
+        text=_normalize_discord_text(
+            processed_data.get("replied_content", ""), message.guild
+        ),
     )
 
 
-def _map_conversation(message: discord.Message) -> ConversationContext:
+async def _map_conversation(message: discord.Message) -> ConversationContext:
     channel = message.channel
     guild = message.guild
     space_id = _optional_id(getattr(guild, "id", None))
@@ -68,6 +92,18 @@ def _map_conversation(message: discord.Message) -> ConversationContext:
         owner = getattr(channel, "owner", None)
         parent = getattr(channel, "parent", None)
         starter_message = getattr(channel, "starter_message", None)
+
+        if owner is None and getattr(channel, "owner_id", None) and guild:
+            try:
+                owner = await guild.fetch_member(channel.owner_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                log.warning("无法获取 Discord 帖子 %s 的帖主。", channel.id)
+
+        if starter_message is None:
+            try:
+                starter_message = await channel.fetch_message(channel.id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                log.warning("无法获取 Discord 帖子 %s 的首楼。", channel.id)
 
         thread_context = ThreadContext(
             owner_id=_optional_id(
@@ -116,7 +152,7 @@ def _map_conversation(message: discord.Message) -> ConversationContext:
     )
 
 
-def map_discord_message(
+async def map_discord_message(
     message: discord.Message, processed_data: Mapping[str, Any]
 ) -> IncomingMessage:
     """Translate existing MessageProcessor output without changing its behavior."""
@@ -126,8 +162,10 @@ def map_discord_message(
         message_id=str(message.id),
         user_id=str(message.author.id),
         user_name=message.author.display_name,
-        text=processed_data.get("user_content", ""),
-        conversation=_map_conversation(message),
+        text=_normalize_discord_text(
+            processed_data.get("user_content", ""), message.guild
+        ),
+        conversation=await _map_conversation(message),
         timestamp=message.created_at,
         replied_message=_map_reply(message, processed_data),
         images=_map_images(processed_data),

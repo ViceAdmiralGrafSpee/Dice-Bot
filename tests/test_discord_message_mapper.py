@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import discord
+import pytest
 
 from src.chat.platform import ConversationKind
 from src.chat.platform.discord import map_discord_message
@@ -23,7 +24,8 @@ def _discord_message(channel, guild):
     return message
 
 
-def test_maps_discord_channel_message_from_existing_processor_output():
+@pytest.mark.asyncio
+async def test_maps_discord_channel_message_from_existing_processor_output():
     guild = Mock(spec=discord.Guild)
     guild.id = 20002
     guild.name = "TRPG Server"
@@ -33,7 +35,7 @@ def test_maps_discord_channel_message_from_existing_processor_output():
     channel.name = "跑团频道"
 
     message = _discord_message(channel, guild)
-    incoming = map_discord_message(
+    incoming = await map_discord_message(
         message,
         {
             "user_content": "骰 2d6+3",
@@ -52,7 +54,8 @@ def test_maps_discord_channel_message_from_existing_processor_output():
     assert incoming.conversation.space_name == "TRPG Server"
 
 
-def test_maps_thread_reply_images_and_cached_starter_message():
+@pytest.mark.asyncio
+async def test_maps_thread_reply_images_and_cached_starter_message():
     guild = Mock(spec=discord.Guild)
     guild.id = 20002
     guild.name = "TRPG Server"
@@ -85,7 +88,7 @@ def test_maps_thread_reply_images_and_cached_starter_message():
         cached_message=SimpleNamespace(author=replied_author),
     )
 
-    incoming = map_discord_message(
+    incoming = await map_discord_message(
         message,
         {
             "user_content": "调查左边的门",
@@ -113,3 +116,54 @@ def test_maps_thread_reply_images_and_cached_starter_message():
     assert incoming.replied_message.text.startswith("> [守秘人]")
     assert incoming.images[0].data == b"image-bytes"
     assert incoming.images[0].name == "map.png"
+
+
+@pytest.mark.asyncio
+async def test_fetches_missing_thread_details_and_normalizes_mentions():
+    guild = Mock(spec=discord.Guild)
+    guild.id = 20002
+    guild.name = "TRPG Server"
+
+    mentioned_member = Mock(spec=discord.Member)
+    mentioned_member.id = 10003
+    mentioned_member.display_name = "守秘人"
+    guild.get_member.return_value = mentioned_member
+
+    owner = Mock(spec=discord.Member)
+    owner.id = 10001
+    owner.display_name = "调查员"
+    guild.fetch_member = AsyncMock(return_value=owner)
+
+    parent = Mock(spec=discord.TextChannel)
+    parent.id = 30003
+    parent.name = "跑团频道"
+
+    thread = Mock(spec=discord.Thread)
+    thread.id = 40004
+    thread.name = "旧宅调查"
+    thread.owner = None
+    thread.owner_id = owner.id
+    thread.parent = parent
+    thread.parent_id = parent.id
+    thread.applied_tags = []
+    thread.starter_message = None
+    thread.fetch_message = AsyncMock(
+        return_value=SimpleNamespace(content="这是通过 Discord API 获取的首楼。")
+    )
+
+    message = _discord_message(thread, guild)
+    incoming = await map_discord_message(
+        message,
+        {
+            "user_content": "询问 <@10003>",
+            "replied_content": "",
+            "image_data_list": [],
+        },
+    )
+
+    assert incoming.text == "询问 @守秘人"
+    assert incoming.conversation.thread is not None
+    assert incoming.conversation.thread.owner_name == "调查员"
+    assert incoming.conversation.thread.starter_text == "这是通过 Discord API 获取的首楼。"
+    guild.fetch_member.assert_awaited_once_with(owner.id)
+    thread.fetch_message.assert_awaited_once_with(thread.id)
