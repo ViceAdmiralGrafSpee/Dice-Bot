@@ -7,6 +7,8 @@ from src.qq_bot import (
     DEFAULT_QQ_AI_MODEL,
     QQBotSettings,
     QQConfigurationError,
+    create_qq_command_registry,
+    create_qq_tool_registry,
     initialize_qq_chat_core,
     load_qq_settings,
     process_onebot_events,
@@ -36,6 +38,24 @@ def test_non_deepseek_model_does_not_require_deepseek_key() -> None:
     settings = load_qq_settings(environ)
 
     assert settings.ai_model == "openai_compatible:gpt-4o"
+
+
+def test_qq_runtime_registers_traditional_dice_command() -> None:
+    registry = create_qq_command_registry()
+
+    assert registry.dispatch("ordinary chat") is None
+    assert registry.dispatch(".r") is not None
+    assert registry.dispatch(".dnd5e check") is not None
+    assert registry.dispatch(".dnd5r check") is None
+
+
+def test_qq_runtime_registers_dice_and_dnd5e_llm_tools() -> None:
+    registry = create_qq_tool_registry()
+
+    assert [item.name for item in registry.declarations()] == [
+        "roll_dice",
+        "dnd5e_check",
+    ]
 
 
 @pytest.mark.parametrize(

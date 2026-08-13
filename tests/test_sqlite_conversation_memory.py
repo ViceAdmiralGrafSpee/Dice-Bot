@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from src.chat.commands import CommandRegistry
 from src.chat.memory import SQLiteConversationRepository
 from src.chat.platform.onebot.event_mapper import map_onebot_message
 from src.chat.platform.onebot.persistent_chat import (
@@ -76,6 +77,7 @@ async def test_non_mentioned_group_messages_become_context_without_triggering_ai
         background_event,
         chat_core,
         repository,
+        CommandRegistry(),
     )
 
     assert handled is False
@@ -87,6 +89,7 @@ async def test_non_mentioned_group_messages_become_context_without_triggering_ai
         addressed_event,
         chat_core,
         repository,
+        CommandRegistry(),
     )
 
     assert handled is True

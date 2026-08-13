@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from src.chat.dice import DiceEngine, handle_dice_command
+from src.chat.commands import CommandRegistry
 from src.chat.memory import SQLiteConversationRepository
 from src.config import BOT_NAME
 
@@ -18,15 +18,12 @@ from .event_mapper import (
 from .request_context import OneBotRequestContext
 
 
-_DEFAULT_DICE_ENGINE = DiceEngine()
-
-
 async def handle_persistent_onebot_chat_event(
     sender: OneBotMessageSender,
     event: Mapping[str, Any],
     chat_core: ChatCore,
     repository: SQLiteConversationRepository,
-    dice_engine: DiceEngine = _DEFAULT_DICE_ENGINE,
+    command_registry: CommandRegistry,
 ) -> bool:
     """Record supported messages, while generating only when addressed."""
 
@@ -44,10 +41,10 @@ async def handle_persistent_onebot_chat_event(
             bot_name=BOT_NAME,
         )
 
-    dice_response = handle_dice_command(incoming.text, dice_engine)
-    if dice_response is not None:
-        await sender.send_message(event, dice_response)
-        await record_response(incoming, dice_response)
+    command_result = command_registry.dispatch(incoming.text)
+    if command_result is not None:
+        await sender.send_message(event, command_result.content)
+        await record_response(incoming, command_result.content)
         return True
 
     if not is_bot_addressed(event):

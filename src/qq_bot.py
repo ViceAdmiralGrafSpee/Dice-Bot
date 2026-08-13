@@ -21,6 +21,8 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
+from src.chat.commands import CommandRegistry
+from src.chat.dice import register_dice_commands, register_dice_tools
 from src.chat.platform.onebot.chat_gateway import (
     ChatCore,
     handle_onebot_chat_event,
@@ -30,6 +32,8 @@ from src.chat.platform.onebot.persistent_chat import (
     handle_persistent_onebot_chat_event,
 )
 from src.chat.platform.onebot.transport import OneBotWebSocketClient
+from src.chat.rules import RuleSystemRegistry
+from src.chat.rules.dnd5e import Dnd5eRuleSystem
 from src.chat.tools import PortableToolService, ToolRegistry
 
 
@@ -112,6 +116,28 @@ def load_qq_settings(
     )
 
 
+def create_qq_command_registry() -> CommandRegistry:
+    """Build the traditional commands enabled by the QQ runtime."""
+
+    registry = CommandRegistry()
+    register_dice_commands(registry)
+    rule_systems = RuleSystemRegistry()
+    rule_systems.register(Dnd5eRuleSystem())
+    rule_systems.register_commands(registry)
+    return registry
+
+
+def create_qq_tool_registry() -> ToolRegistry:
+    """Build the LLM-callable tools enabled by the QQ runtime."""
+
+    registry = ToolRegistry()
+    register_dice_tools(registry)
+    rule_systems = RuleSystemRegistry()
+    rule_systems.register(Dnd5eRuleSystem())
+    rule_systems.register_tools(registry)
+    return registry
+
+
 async def initialize_qq_chat_core(settings: QQBotSettings) -> ChatCore:
     """Initialize the existing platform-neutral chat flow for QQ."""
 
@@ -124,13 +150,10 @@ async def initialize_qq_chat_core(settings: QQBotSettings) -> ChatCore:
     from src.chat.services.chat_service import chat_service
     from src.chat.utils.database import chat_db_manager
     from src.database.database import optional_chat_database_is_ready
-    from src.chat.dice import register_dice_tools
-
     await chat_db_manager.init_async()
     await world_book_db_manager.init_async()
 
-    tool_registry = ToolRegistry()
-    register_dice_tools(tool_registry)
+    tool_registry = create_qq_tool_registry()
     tool_service = PortableToolService(tool_registry)
     declarations = tool_registry.declarations()
     ai_service.set_tools(
@@ -156,7 +179,7 @@ async def initialize_qq_chat_core(settings: QQBotSettings) -> ChatCore:
     # such UI yet, so the process configuration is the source of truth.
     await chat_db_manager.set_global_setting("ai_model", settings.ai_model)
     log.info(
-        "QQ 聊天核心已就绪，当前模型：%s（已加载工具：roll_dice）",
+        "QQ 聊天核心已就绪，当前模型：%s（已加载工具：roll_dice、dnd5e_check）",
         settings.ai_model,
     )
     return chat_service
@@ -185,6 +208,7 @@ async def run_qq_bot(settings: QQBotSettings) -> None:
     chat_core = await initialize_qq_chat_core(settings)
     conversation_repository = SQLiteConversationRepository()
     await conversation_repository.initialize()
+    command_registry = create_qq_command_registry()
 
     async def persistent_event_handler(client, event, core) -> bool:
         return await handle_persistent_onebot_chat_event(
@@ -192,6 +216,7 @@ async def run_qq_bot(settings: QQBotSettings) -> None:
             event,
             core,
             conversation_repository,
+            command_registry,
         )
 
     try:
