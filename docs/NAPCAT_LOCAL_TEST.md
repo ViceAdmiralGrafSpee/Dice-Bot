@@ -80,6 +80,27 @@ python -m src.chat.platform.onebot.echo_bot
 
 这个回声程序不会调用 LLM，也不会修改数据库。
 
+## 6. 启动正式 AI 聊天入口
+
+固定回声测试通过后，再在本机 `.env` 中加入：
+
+```dotenv
+DEEPSEEK_API_KEY="这里填写你自己的 DeepSeek API Key"
+QQ_AI_MODEL="deepseek:deepseek-chat"
+```
+
+然后在仓库目录运行：
+
+```powershell
+python -m src.qq_bot
+```
+
+这个才是 QQ 骰娘的正式启动命令。它会连接 NapCat，并把私聊或群内明确 @机器人的消息交给共享聊天核心。第一版暂不加载图片、骰子和原 Discord 工具。
+
+DeepSeek Key 和 OneBot Token 都只能保存在本机 `.env`。如果缺少必要设置，程序会直接说明缺少哪一项，并且不会连接 QQ 或误发消息。
+
+目前共享聊天核心中的好感度、用户偏好等旧功能仍依赖原项目的 PostgreSQL 数据库。没有启动数据库时，固定回声测试仍可使用，但正式 AI 回复可能失败；这是下一步继续拆分的旧项目依赖，不是 NapCat 连接故障。
+
 ## 常见问题
 
 ### 一直显示连接失败
