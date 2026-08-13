@@ -370,7 +370,7 @@ async def _search_memory(params: SearchParams, **kwargs) -> Dict[str, Any]:
     exclude_block_ids = [latest_block_id] if latest_block_id else None
 
     blocks = await conversation_memory_search_service.search(
-        discord_id=user_id,
+        user_id=user_id,
         query=query,
         exclude_block_ids=exclude_block_ids,
     )

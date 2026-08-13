@@ -224,7 +224,7 @@ class ToolService:
         self,
         tool_call: Union[types.FunctionCall, Dict[str, Any]],
         channel: Optional[discord.TextChannel] = None,
-        user_id: Optional[int] = None,
+        user_id: Optional[str | int] = None,
         log_detailed: bool = False,
         user_id_for_settings: Optional[str] = None,
         user_name: Optional[str] = None,
@@ -238,7 +238,7 @@ class ToolService:
         Args:
             tool_call: 来自 Gemini API 响应的函数调用对象，或 OpenAI 格式的 dict。
             channel: 可选的当前消息所在的 Discord 频道对象。
-            user_id: 可选的当前消息作者的 Discord ID，用作某些参数的备用值。
+            user_id: 可选的平台用户 ID，用作某些参数的备用值。
             log_detailed: 是否记录详细日志。
             user_id_for_settings: 用于检查工具设置的用户ID（通常是帖子所有者的ID）。
 

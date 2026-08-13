@@ -70,7 +70,7 @@ class UserConversationBlocksView(discord.ui.View):
         try:
             cursor = db_services.get_cursor(conn)
             cursor.execute(
-                "SELECT * FROM conversation.conversation_blocks WHERE discord_id = %s ORDER BY start_time DESC",
+                "SELECT * FROM conversation.conversation_blocks WHERE user_id = %s ORDER BY start_time DESC",
                 (self.user_id,),
             )
             self.current_list_items = cursor.fetchall()
@@ -465,7 +465,7 @@ class UserConversationBlocksView(discord.ui.View):
                 try:
                     cursor = db_services.get_cursor(conn)
                     cursor.execute(
-                        "DELETE FROM conversation.conversation_blocks WHERE discord_id = %s",
+                        "DELETE FROM conversation.conversation_blocks WHERE user_id = %s",
                         (self.user_id,),
                     )
                     conn.commit()
@@ -542,7 +542,7 @@ class ConversationBlocksView(BaseTableView):
     def _get_entry_title(self, entry: Mapping[str, Any]) -> str:
         """获取对话块的标题显示"""
         try:
-            discord_id = entry.get("discord_id", "N/A")
+            discord_id = entry.get("user_id", "N/A")
             message_count = entry.get("message_count", 0)
             start_time = entry.get("start_time")
 
@@ -650,7 +650,7 @@ class ConversationBlocksView(BaseTableView):
 
             # 用户数
             cursor.execute(
-                "SELECT COUNT(DISTINCT discord_id) FROM conversation.conversation_blocks"
+                "SELECT COUNT(DISTINCT user_id) FROM conversation.conversation_blocks"
             )
             users_result = cursor.fetchone()
             total_users = users_result["count"] if users_result else 0
@@ -765,7 +765,7 @@ class ConversationBlocksView(BaseTableView):
             await interaction.response.send_message("找不到该对话块。", ephemeral=True)
             return
 
-        discord_id = current_item.get("discord_id")
+        discord_id = current_item.get("user_id")
         if not discord_id:
             await interaction.response.send_message("无法获取用户 ID。", ephemeral=True)
             return
@@ -779,7 +779,7 @@ class ConversationBlocksView(BaseTableView):
         try:
             cursor = db_services.get_cursor(conn)
             cursor.execute(
-                "SELECT COUNT(*) FROM conversation.conversation_blocks WHERE discord_id = %s",
+                "SELECT COUNT(*) FROM conversation.conversation_blocks WHERE user_id = %s",
                 (discord_id,),
             )
             count_result = cursor.fetchone()
@@ -801,7 +801,7 @@ class ConversationBlocksView(BaseTableView):
                 try:
                     cursor = db_services.get_cursor(conn)
                     cursor.execute(
-                        "DELETE FROM conversation.conversation_blocks WHERE discord_id = %s",
+                        "DELETE FROM conversation.conversation_blocks WHERE user_id = %s",
                         (discord_id,),
                     )
                     conn.commit()
@@ -949,7 +949,7 @@ class ConversationBlocksView(BaseTableView):
             self.view_mode = "list"
             return await self._build_list_embed()
 
-        discord_id = current_item.get("discord_id", "N/A")
+        discord_id = current_item.get("user_id", "N/A")
         embed = discord.Embed(
             title=f"对话块详情 #{self.current_item_id}",
             description=f"用户: `{discord_id}`",
@@ -1029,7 +1029,7 @@ class SearchUserBlocksModal(discord.ui.Modal, title="按用户 ID 搜索对话�
         try:
             cursor = db_services.get_cursor(conn)
             cursor.execute(
-                "SELECT * FROM conversation.conversation_blocks WHERE discord_id = %s ORDER BY start_time DESC",
+                "SELECT * FROM conversation.conversation_blocks WHERE user_id = %s ORDER BY start_time DESC",
                 (user_id,),
             )
             results = cursor.fetchall()

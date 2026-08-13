@@ -196,7 +196,7 @@ async def test_chat_generation_uses_platform_message_without_raw_discord_object(
             chat_service_module.world_book_service,
             "get_profile_by_user_id",
             new=AsyncMock(return_value=None),
-        ),
+        ) as profile_lookup,
         patch.object(
             chat_service_module.affection_service,
             "get_affection_status",
@@ -269,6 +269,7 @@ async def test_chat_generation_uses_platform_message_without_raw_discord_object(
     assert result is not None
     assert result.content == "门锁看起来很旧。"
     request.get_formatted_history.assert_awaited_once_with()
+    profile_lookup.assert_awaited_once_with("10001")
     prompt_kwargs = build_prompt.await_args.kwargs
     assert prompt_kwargs["user_name"] == "调查员"
     assert prompt_kwargs["message"] == "检查门锁"

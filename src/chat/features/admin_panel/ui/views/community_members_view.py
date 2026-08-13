@@ -117,13 +117,13 @@ class CommunityMembersView(BaseTableView):
             return
 
         current_item = self._get_item_by_id(self.current_item_id)
-        if not current_item or "discord_id" not in current_item.keys():
+        if not current_item or "user_id" not in current_item.keys():
             await interaction.response.send_message(
                 "无法获取该成员的 Discord ID。", ephemeral=True
             )
             return
 
-        discord_id = current_item["discord_id"]
+        discord_id = current_item["user_id"]
         if not discord_id:
             await interaction.response.send_message(
                 "该成员未记录 Discord ID，无法查询记忆。", ephemeral=True
@@ -156,13 +156,13 @@ class CommunityMembersView(BaseTableView):
             return
 
         current_item = self._get_item_by_id(self.current_item_id)
-        if not current_item or "discord_id" not in current_item.keys():
+        if not current_item or "user_id" not in current_item.keys():
             await interaction.response.send_message(
                 "无法获取该成员的 Discord ID。", ephemeral=True
             )
             return
 
-        discord_id = current_item["discord_id"]
+        discord_id = current_item["user_id"]
         if not discord_id:
             await interaction.response.send_message(
                 "该成员未记录 Discord ID，无法查询对话块。", ephemeral=True
@@ -196,13 +196,13 @@ class CommunityMembersView(BaseTableView):
             return
 
         current_item = self._get_item_by_id(self.current_item_id)
-        if not current_item or "discord_id" not in current_item.keys():
+        if not current_item or "user_id" not in current_item.keys():
             await interaction.response.send_message(
                 "无法获取该成员的 Discord ID。", ephemeral=True
             )
             return
 
-        discord_id = current_item["discord_id"]
+        discord_id = current_item["user_id"]
         if not discord_id:
             await interaction.response.send_message(
                 "该成员未记录 Discord ID，无法查询记忆笔记。", ephemeral=True
@@ -256,10 +256,10 @@ class CommunityMembersView(BaseTableView):
             return None, None, None
 
         current_item = self._get_item_by_id(self.current_item_id)
-        if not current_item or "discord_id" not in current_item.keys():
+        if not current_item or "user_id" not in current_item.keys():
             return None, None, None
 
-        discord_id_str = current_item["discord_id"]
+        discord_id_str = current_item["user_id"]
         if not discord_id_str:
             return None, None, None
 

@@ -267,9 +267,7 @@ class CommunityMemberProfile(Base):
         nullable=False,
         comment="来自旧系统的唯一ID, 例如 member_id",
     )
-    discord_id = Column(
-        String, unique=True, nullable=True, comment="成员的Discord数字ID"
-    )
+    user_id = Column(String, unique=True, nullable=True, comment="平台提供的用户ID")
     title = Column(Text, nullable=True, comment="成员标题/昵称")
     full_text = Column(
         Text,
@@ -291,7 +289,7 @@ class CommunityMemberProfile(Base):
     )
 
     def __repr__(self):
-        return f"<CommunityMemberProfile(id={self.id}, discord_id='{self.discord_id}')>"
+        return f"<CommunityMemberProfile(id={self.id}, user_id='{self.user_id}')>"
 
 
 class CommunityMemberChunk(Base):
@@ -385,7 +383,7 @@ class UserToolSettings(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[str] = mapped_column(
-        String(50), unique=True, nullable=False, comment="用户的Discord ID"
+        String(50), unique=True, nullable=False, comment="平台提供的用户ID"
     )
     enabled_tools: Mapped[dict] = mapped_column(
         JSON,
@@ -415,7 +413,7 @@ class UserCommandSettings(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[str] = mapped_column(
-        String(50), unique=True, nullable=False, comment="用户的Discord ID"
+        String(50), unique=True, nullable=False, comment="平台提供的用户ID"
     )
     enabled_commands: Mapped[dict] = mapped_column(
         JSON,
@@ -444,7 +442,7 @@ class UserPersonaPreference(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[str] = mapped_column(
-        String(50), unique=True, nullable=False, comment="用户的Discord ID"
+        String(50), unique=True, nullable=False, comment="平台提供的用户ID"
     )
     persona_style: Mapped[str] = mapped_column(
         String(50),
@@ -478,7 +476,7 @@ class UserMemoryNote(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[str] = mapped_column(
-        String(50), nullable=False, index=True, comment="用户的Discord ID"
+        String(50), nullable=False, index=True, comment="平台提供的用户ID"
     )
     category: Mapped[str] = mapped_column(
         String(50), nullable=False,
@@ -680,7 +678,7 @@ class ConversationBlock(Base):
             postgresql_ops={"qwen_embedding": "halfvec_cosine_ops"},
         ),
         # 用户ID索引用于过滤
-        Index("idx_conv_discord_id", "discord_id"),
+        Index("idx_conv_user_id", "user_id"),
         # 开始时间索引用于排序
         Index("idx_conv_start_time", "start_time"),
         {"schema": CONVERSATION_SCHEMA},
@@ -689,8 +687,8 @@ class ConversationBlock(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
     # 用户标识
-    discord_id: Mapped[str] = mapped_column(
-        String(50), nullable=False, comment="用户的Discord ID"
+    user_id: Mapped[str] = mapped_column(
+        String(50), nullable=False, comment="平台提供的用户ID"
     )
 
     # 对话块内容
@@ -743,7 +741,7 @@ class ConversationBlock(Base):
     )
 
     def __repr__(self):
-        return f"<ConversationBlock(id={self.id}, discord_id='{self.discord_id}', start_time={self.start_time})>"
+        return f"<ConversationBlock(id={self.id}, user_id='{self.user_id}', start_time={self.start_time})>"
 
 
 # --- Economy 模型 (ParadeDB) ---

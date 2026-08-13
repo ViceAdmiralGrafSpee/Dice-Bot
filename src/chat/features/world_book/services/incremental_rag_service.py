@@ -113,7 +113,7 @@ def _format_content_dict(content_dict: dict) -> list[str]:
 
     # 定义不应包含在向量化文档中的后端或敏感字段
     EXCLUDED_FIELDS = [
-        "discord_id",
+        "user_id",
         "discord_number_id",  # 新增：过滤掉数字ID，防止泄露到RAG上下文
         "uploaded_by",
         "uploaded_by_name",  # 新增：过滤掉上传者姓名
@@ -332,7 +332,7 @@ class IncrementalRAGService:
             cursor = conn.cursor(cursor_factory=DictCursor)
             cursor.execute(
                 """
-                SELECT id, external_id, discord_id, title, full_text, source_metadata
+                SELECT id, external_id, user_id, title, full_text, source_metadata
                 FROM community.member_profiles
                 WHERE id = %s
                 """,

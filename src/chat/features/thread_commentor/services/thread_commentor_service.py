@@ -70,7 +70,7 @@ class ThreadCommentorService:
         try:
             async with AsyncSessionLocal() as session:
                 stmt = select(CommunityMemberProfile.personal_summary).where(
-                    CommunityMemberProfile.discord_id == str(user_id)
+                    CommunityMemberProfile.user_id == str(user_id)
                 )
                 result = await session.execute(stmt)
                 summary = result.scalars().first()

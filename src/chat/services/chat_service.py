@@ -132,7 +132,8 @@ class ChatService:
             ChatResult: AI生成的回复结果（含工具调用元数据）。如果为 None，则表示不应回复。
         """
         message = request.message
-        user_id = int(message.user_id)
+        user_id = message.user_id
+        numeric_user_id = int(user_id)
         user_name = message.user_name
         guild_name = message.conversation.space_name or "私信"
 
@@ -182,7 +183,9 @@ class ChatService:
                 )
 
             # --- 新增：集中获取所有上下文数据 ---
-            affection_status = await affection_service.get_affection_status(user_id)
+            affection_status = await affection_service.get_affection_status(
+                numeric_user_id
+            )
             persona_style = await persona_preference_service.get_persona_style(
                 str(user_id)
             )
@@ -210,13 +213,13 @@ class ChatService:
             # 3. --- 好感度与奖励更新（前置） ---
             try:
                 # 在生成回复前更新好感度，以确保日志顺序正确
-                await affection_service.increase_affection_on_message(user_id)
+                await affection_service.increase_affection_on_message(numeric_user_id)
             except Exception as aff_e:
                 log.error(f"增加用户 {user_id} 的好感度时出错: {aff_e}")
 
             try:
                 # 发放每日首次对话奖励
-                if await coin_service.grant_daily_message_reward(user_id):
+                if await coin_service.grant_daily_message_reward(numeric_user_id):
                     log.info(f"已为用户 {user_id} 发放每日首次对话奖励。")
             except Exception as coin_e:
                 log.error(f"为用户 {user_id} 发放每日对话奖励时出错: {coin_e}")
@@ -500,7 +503,7 @@ class ChatService:
 
     async def _perform_post_response_tasks(
         self,
-        user_id: int,
+        user_id: str | int,
         user_name: str,
         guild_id: int,
         query: str,
@@ -516,7 +519,7 @@ class ChatService:
 
     def _log_rag_summary(
         self,
-        user_id: int,
+        user_id: str | int,
         user_name: str,
         query: str,
         entries: list,

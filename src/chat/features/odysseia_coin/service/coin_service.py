@@ -714,7 +714,7 @@ class CoinService:
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(CommunityMemberProfile.personal_summary).where(
-                    CommunityMemberProfile.discord_id == uid
+                    CommunityMemberProfile.user_id == uid
                 )
             )
             summary = result.scalars().first()

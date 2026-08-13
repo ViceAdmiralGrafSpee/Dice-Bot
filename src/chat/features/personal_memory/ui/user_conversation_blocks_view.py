@@ -42,7 +42,7 @@ class UserConversationBlocksView(discord.ui.View):
         初始化视图。
 
         Args:
-            user_id: 用户 Discord ID
+            user_id: 平台提供的用户 ID
             message: Discord 消息对象，用于更新视图
             on_complete_callback: 完成后的回调函数（可选）
         """

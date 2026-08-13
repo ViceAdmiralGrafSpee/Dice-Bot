@@ -216,7 +216,7 @@ class ReviewService:
         name = data.get("name", "未知姓名")
 
         # --- 判断是自我介绍还是他人介绍 ---
-        is_self_introduction = str(data.get("discord_id")) == str(proposer.id)
+        is_self_introduction = str(data.get("user_id")) == str(proposer.id)
 
         if is_self_introduction:
             title = "✨ 一份新的自我介绍！"
@@ -515,15 +515,15 @@ class ReviewService:
                     embed_description = f"大家的意见咱都收到啦！关于 **{data['title']}** 的新知识已经被我记在小本本上啦！"
 
                 elif entry_type == "community_member":
-                    profile_user_id = data.get("discord_id")
+                    profile_user_id = data.get("user_id")
                     if not profile_user_id:
                         raise ValueError(
-                            f"社区成员条目 #{pending_id} 缺少 discord_id。"
+                            f"社区成员条目 #{pending_id} 缺少 user_id。"
                         )
 
                     # --- 检查用户是否已有档案 ---
                     parade_cursor.execute(
-                        "SELECT id FROM community.member_profiles WHERE discord_id = %s",
+                        "SELECT id FROM community.member_profiles WHERE user_id = %s",
                         (str(profile_user_id),),
                     )
                     existing_member = parade_cursor.fetchone()
@@ -539,7 +539,7 @@ Discord ID: {profile_user_id}
                     """.strip()
                     source_metadata = {
                         "name": updated_name,
-                        "discord_id": str(profile_user_id),
+                        "user_id": str(profile_user_id),
                         "personality": data.get("personality", "").strip(),
                         "background": data.get("background", "").strip(),
                         "preferences": data.get("preferences", "").strip(),
@@ -582,7 +582,7 @@ Discord ID: {profile_user_id}
                         external_id = f"pending_{pending_id}"
                         parade_cursor.execute(
                             """
-                            INSERT INTO community.member_profiles (external_id, discord_id, title, full_text, source_metadata, created_at, updated_at)
+                            INSERT INTO community.member_profiles (external_id, user_id, title, full_text, source_metadata, created_at, updated_at)
                             VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
                             RETURNING id
                             """,

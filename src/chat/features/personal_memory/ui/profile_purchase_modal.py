@@ -55,7 +55,7 @@ class PersonalProfilePurchaseModal(discord.ui.Modal, title="📝 创建或更新
             "personality": self.personality.value.strip(),
             "background": self.background.value.strip(),
             "preferences": self.preferences.value.strip(),
-            "discord_id": str(interaction.user.id),
+            "user_id": str(interaction.user.id),
             "discord_number_id": interaction.user.id,
             "uploaded_by": interaction.user.id,
             "uploaded_by_name": interaction.user.display_name,

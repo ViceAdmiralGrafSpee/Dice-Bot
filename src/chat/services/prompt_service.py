@@ -1302,7 +1302,7 @@ class PromptService:
 
             # 定义不应包含在上下文中的后端或敏感字段
             EXCLUDED_FIELDS = [
-                "discord_id",
+                "user_id",
                 "discord_number_id",
                 "uploaded_by",
                 "uploaded_by_name",
