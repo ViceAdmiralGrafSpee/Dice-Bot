@@ -27,6 +27,7 @@ def _group_event(*, mentioned: bool = True) -> dict:
 @pytest.mark.asyncio
 async def test_routes_addressed_message_through_shared_chat_core() -> None:
     sender = AsyncMock()
+    response_recorder = AsyncMock()
     chat_core = SimpleNamespace(
         should_process_message=AsyncMock(return_value=True),
         handle_chat_message=AsyncMock(
@@ -34,7 +35,12 @@ async def test_routes_addressed_message_through_shared_chat_core() -> None:
         ),
     )
 
-    handled = await handle_onebot_chat_event(sender, _group_event(), chat_core)
+    handled = await handle_onebot_chat_event(
+        sender,
+        _group_event(),
+        chat_core,
+        response_recorder=response_recorder,
+    )
 
     assert handled is True
     request = chat_core.should_process_message.await_args.args[0]
@@ -46,6 +52,7 @@ async def test_routes_addressed_message_through_shared_chat_core() -> None:
         _group_event(),
         "Core response",
     )
+    response_recorder.assert_awaited_once_with(request.message, "Core response")
 
 
 @pytest.mark.asyncio

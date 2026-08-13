@@ -25,6 +25,10 @@ from src.chat.platform.onebot.chat_gateway import (
     ChatCore,
     handle_onebot_chat_event,
 )
+from src.chat.memory import SQLiteConversationRepository
+from src.chat.platform.onebot.persistent_chat import (
+    handle_persistent_onebot_chat_event,
+)
 from src.chat.platform.onebot.transport import OneBotWebSocketClient
 
 
@@ -177,6 +181,16 @@ async def run_qq_bot(settings: QQBotSettings) -> None:
     """Connect the shared chat core to NapCat and keep reconnecting."""
 
     chat_core = await initialize_qq_chat_core(settings)
+    conversation_repository = SQLiteConversationRepository()
+    await conversation_repository.initialize()
+
+    async def persistent_event_handler(client, event, core) -> bool:
+        return await handle_persistent_onebot_chat_event(
+            client,
+            event,
+            core,
+            conversation_repository,
+        )
 
     try:
         while True:
@@ -185,7 +199,11 @@ async def run_qq_bot(settings: QQBotSettings) -> None:
                 log.info("正在连接 NapCat：%s", settings.ws_url)
                 async with client:
                     log.info("QQ 骰娘已上线；私聊或在群里 @机器人即可触发 AI 回复。")
-                    await process_onebot_events(client, chat_core)
+                    await process_onebot_events(
+                        client,
+                        chat_core,
+                        event_handler=persistent_event_handler,
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception as error:
