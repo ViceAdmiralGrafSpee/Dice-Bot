@@ -8,12 +8,14 @@ from .models import (
     RepliedMessage,
     ThreadContext,
 )
+from .request_context import PlatformRequestContext
 
 __all__ = [
     "ConversationContext",
     "ConversationKind",
     "IncomingMessage",
     "MessageImage",
+    "PlatformRequestContext",
     "RepliedMessage",
     "ThreadContext",
 ]
