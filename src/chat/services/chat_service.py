@@ -149,9 +149,7 @@ class ChatService:
             location_name = message.conversation.name
 
         # --- 个人记忆消息计数 ---
-        user_profile_data = await world_book_service.get_profile_by_discord_id(
-            user_id
-        )
+        user_profile_data = await world_book_service.get_profile_by_user_id(user_id)
 
         user_content = message.text
         replied_content = (

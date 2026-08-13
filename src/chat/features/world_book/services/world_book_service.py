@@ -231,19 +231,19 @@ class WorldBookService:
             if cursor:
                 cursor.close()
 
-    async def get_profile_by_discord_id(
-        self, discord_id: int
+    async def get_profile_by_user_id(
+        self, user_id: str | int
     ) -> Optional[Dict[str, Any]]:
         """
-        通过 Discord ID 从 ParadeDB 的 community.member_profiles 表中获取用户档案。
+        通过平台提供的用户 ID 获取用户档案。
 
         Args:
-            discord_id: 用户的 Discord ID。
+            user_id: 平台提供的用户 ID；QQ/OneBot ID 可以直接传入。
 
         Returns:
             一个包含用户档案数据的字典，如果找不到则返回 None。
         """
-        log.info(f"正在从 ParadeDB 查询 discord_id 为 {discord_id} 的用户档案...")
+        log.info(f"正在从 ParadeDB 查询 user_id 为 {user_id} 的用户档案...")
         conn = incremental_rag_service._get_parade_connection()
         if not conn:
             log.error("ParadeDB 连接不可用，无法获取用户档案。")
@@ -258,24 +258,24 @@ class WorldBookService:
                 cursor.execute(
                     """
                     SELECT
-                        discord_id,
+                        discord_id AS user_id,
                         title,
                         personal_summary,
                         source_metadata
                     FROM community.member_profiles
                     WHERE discord_id = %s
                     """,
-                    (str(discord_id),),  # 查询参数需要是元组
+                    (str(user_id),),  # 查询参数需要是元组
                 )
                 profile = cursor.fetchone()
 
             if profile:
-                log.info(f"成功找到 discord_id {discord_id} 的用户档案。")
+                log.info(f"成功找到 user_id {user_id} 的用户档案。")
                 # 将 RealDictRow 转换为普通字典以便序列化
                 return dict(profile)
             else:
                 log.warning(
-                    f"在 ParadeDB 中未找到 discord_id {discord_id} 的用户档案。"
+                    f"在 ParadeDB 中未找到 user_id {user_id} 的用户档案。"
                 )
                 return None
 

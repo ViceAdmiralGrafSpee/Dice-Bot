@@ -34,7 +34,7 @@ class ThreadCommentorService:
 
         # 1. 从世界书获取用户档案
         try:
-            profile_data = await world_book_service.get_profile_by_discord_id(user_id)
+            profile_data = await world_book_service.get_profile_by_user_id(user_id)
             if profile_data:
                 source_data = {}
                 source_metadata = profile_data.get("source_metadata")

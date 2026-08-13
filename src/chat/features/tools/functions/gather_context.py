@@ -34,7 +34,7 @@ async def _gather_impression(**kwargs) -> str | None:
     user_id = kwargs.get("user_id")
     if not user_id:
         return None
-    user_profile_data = await world_book_service.get_profile_by_discord_id(int(user_id))
+    user_profile_data = await world_book_service.get_profile_by_user_id(user_id)
     if user_profile_data:
         return user_profile_data.get("personal_summary")
     return None

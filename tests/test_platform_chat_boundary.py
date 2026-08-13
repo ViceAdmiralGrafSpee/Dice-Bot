@@ -194,7 +194,7 @@ async def test_chat_generation_uses_platform_message_without_raw_discord_object(
     with (
         patch.object(
             chat_service_module.world_book_service,
-            "get_profile_by_discord_id",
+            "get_profile_by_user_id",
             new=AsyncMock(return_value=None),
         ),
         patch.object(
