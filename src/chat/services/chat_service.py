@@ -1,17 +1,15 @@
 # -*- coding: utf-8 -*-
 
-import discord
 import logging
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
-import discord.abc
 
 # 导入所需的服务
 from src.config import BOT_NAME
 from src.chat.services.ai.service import ai_service
+from src.chat.platform import ConversationKind, PlatformRequestContext
 from src.chat.utils.prompt_utils import replace_emojis
 from src.chat.services.prompt_service import prompt_service
-from src.chat.services.context_service_test import get_context_service  # 导入测试服务
 from src.chat.features.world_book.services.world_book_service import world_book_service
 from src.chat.features.affection.service.affection_service import affection_service
 from src.chat.features.odysseia_coin.service.coin_service import coin_service
@@ -53,12 +51,16 @@ class ChatService:
     负责编排整个AI聊天响应流程。
     """
 
-    async def should_process_message(self, message: discord.Message) -> bool:
+    async def should_process_message(
+        self, request: PlatformRequestContext
+    ) -> bool:
         """
         执行前置检查，判断消息是否应该被处理，以避免不必要的"输入中"状态。
         """
-        author = message.author
-        guild_id = message.guild.id if message.guild else 0
+        message = request.message
+        user_id = int(message.user_id)
+        channel_id = int(message.conversation.conversation_id)
+        guild_id = int(message.conversation.space_id or 0)
 
         # 1. 全局聊天开关检查
         if not await chat_settings_service.is_chat_globally_enabled(guild_id):
@@ -66,18 +68,15 @@ class ChatService:
             return False
 
         # 2. 频道/分类设置检查
-        effective_config = {}
-        if isinstance(message.channel, discord.abc.GuildChannel):
-            effective_config = await chat_settings_service.get_effective_channel_config(
-                message.channel
-            )
+        effective_config = await request.get_effective_chat_config()
 
         if not effective_config.get("is_chat_enabled", True):
             # 检查是否满足通行许可的例外条件
             pass_is_granted = False
-            if isinstance(message.channel, discord.Thread) and message.channel.owner_id:
+            thread = message.conversation.thread
+            if thread and thread.owner_id:
                 # 修正逻辑：只有当帖主明确设置了个人CD时，才算拥有"通行许可"
-                owner_id = message.channel.owner_id
+                owner_id = int(thread.owner_id)
                 owner_config = await coin_service.get_thread_cooldown_settings(owner_id)
 
                 if owner_config:
@@ -90,82 +89,88 @@ class ChatService:
                     if has_personal_cd:
                         pass_is_granted = True
                         log.info(
-                            f"帖主 {owner_id} 拥有个人CD设置（通行许可），覆盖频道 {message.channel.id} 的聊天限制。"
+                            f"帖主 {owner_id} 拥有个人CD设置（通行许可），覆盖会话 {channel_id} 的聊天限制。"
                         )
 
             # 如果没有授予通行权，则按原逻辑返回 False
             if not pass_is_granted:
-                log.info(f"频道 {message.channel.id} 聊天已禁用，跳过前置检查。")
+                log.info(f"会话 {channel_id} 聊天已禁用，跳过前置检查。")
                 return False
 
         # 3. 新版冷却时间检查
         if await chat_settings_service.is_user_on_cooldown(
-            author.id, message.channel.id, effective_config
+            user_id, channel_id, effective_config
         ):
             log.info(
-                f"用户 {author.id} 在频道 {message.channel.id} 处于新版冷却状态，跳过前置检查。"
+                f"用户 {user_id} 在会话 {channel_id} 处于新版冷却状态，跳过前置检查。"
             )
             return False
 
         # 冷却检查通过后立即更新冷却时间戳，防止用户在AI处理期间重复调用
         await chat_settings_service.update_user_cooldown(
-            author.id, message.channel.id, effective_config
+            user_id, channel_id, effective_config
         )
 
         # 4. 黑名单检查
-        if await chat_db_manager.is_user_blacklisted(author.id, guild_id):
-            log.info(f"用户 {author.id} 在服务器 {guild_id} 被拉黑，跳过前置检查。")
+        if await chat_db_manager.is_user_blacklisted(user_id, guild_id):
+            log.info(f"用户 {user_id} 在空间 {guild_id} 被拉黑，跳过前置检查。")
             return False
 
         return True
 
     async def handle_chat_message(
         self,
-        message: discord.Message,
-        processed_data: Dict[str, Any],
-        guild_name: str,
-        location_name: str,
+        request: PlatformRequestContext,
     ) -> Optional[ChatResult]:
         """
         处理聊天消息，生成并返回AI的最终回复。
 
         Args:
-            message (discord.Message): 原始的 discord 消息对象。
-            processed_data (Dict[str, Any]): 由 MessageProcessor 处理后的数据。
+            request: 标准消息以及由平台外层提供的必要操作。
 
         Returns:
             ChatResult: AI生成的回复结果（含工具调用元数据）。如果为 None，则表示不应回复。
         """
-        author = message.author
-        guild_id = message.guild.id if message.guild else 0
+        message = request.message
+        user_id = int(message.user_id)
+        user_name = message.user_name
+        guild_name = message.conversation.space_name or "私信"
 
-        # --- 获取最新的有效配置 ---
-        effective_config = {}
-        if isinstance(message.channel, discord.abc.GuildChannel):
-            effective_config = await chat_settings_service.get_effective_channel_config(
-                message.channel
+        if message.conversation.kind is ConversationKind.THREAD:
+            parent_name = (
+                message.conversation.thread.parent_name
+                if message.conversation.thread
+                else None
             )
+            location_name = f"{parent_name or '未知频道'} -> {message.conversation.name}"
+        elif message.conversation.kind is ConversationKind.DIRECT:
+            location_name = "私信中"
+        else:
+            location_name = message.conversation.name
 
         # --- 个人记忆消息计数 ---
         user_profile_data = await world_book_service.get_profile_by_discord_id(
-            author.id
+            user_id
         )
 
-        user_content = processed_data["user_content"]
-        replied_content = processed_data["replied_content"]
-        image_data_list = processed_data["image_data_list"]
+        user_content = message.text
+        replied_content = (
+            message.replied_message.text if message.replied_message else ""
+        )
+        image_data_list = [
+            {
+                "mime_type": image.mime_type,
+                "data": image.data,
+                "source": image.source,
+                "name": image.name,
+            }
+            for image in message.images
+        ]
 
         try:
             # 2. --- 上下文与知识库检索 ---
             # 获取频道历史上下文
-            channel_context = (
-                await get_context_service().get_formatted_channel_history_new(
-                    message.channel.id,
-                    author.id,
-                    guild_id,
-                    exclude_message_id=message.id,
-                )
-            )
+            channel_context = await request.get_formatted_history()
 
             # 构建备用搜索查询（供 gather_context 工具使用）
             rag_query = user_content
@@ -175,46 +180,48 @@ class ChatService:
             # 确保对话块在工具检索前创建（副作用必须保留）
             if user_profile_data:
                 await personal_memory_service.check_and_create_block_before_reply(
-                    user_id=author.id
+                    user_id=user_id
                 )
 
             # --- 新增：集中获取所有上下文数据 ---
-            affection_status = await affection_service.get_affection_status(author.id)
-            persona_style = await persona_preference_service.get_persona_style(str(author.id))
+            affection_status = await affection_service.get_affection_status(user_id)
+            persona_style = await persona_preference_service.get_persona_style(
+                str(user_id)
+            )
 
             # 获取记忆笔记（仅对有名片用户）
             memory_notes_text = None
             if user_profile_data:
                 try:
                     memory_notes_text = await user_memory_note_service.get_notes_for_context(
-                        str(author.id)
+                        str(user_id)
                     )
                 except Exception as mem_note_e:
-                    log.error(f"获取用户 {author.id} 记忆笔记失败: {mem_note_e}")
+                    log.error(f"获取用户 {user_id} 记忆笔记失败: {mem_note_e}")
 
             # 获取最近聊天历史（仅对有名片用户，1-10条递增）
             recent_chat_history = None
             if user_profile_data:
                 try:
                     recent_chat_history = await personal_memory_service.get_recent_chat_history(
-                        author.id, limit=10
+                        user_id, limit=10
                     )
                 except Exception as hist_e:
-                    log.error(f"获取用户 {author.id} 最近聊天历史失败: {hist_e}")
+                    log.error(f"获取用户 {user_id} 最近聊天历史失败: {hist_e}")
 
             # 3. --- 好感度与奖励更新（前置） ---
             try:
                 # 在生成回复前更新好感度，以确保日志顺序正确
-                await affection_service.increase_affection_on_message(author.id)
+                await affection_service.increase_affection_on_message(user_id)
             except Exception as aff_e:
-                log.error(f"增加用户 {author.id} 的好感度时出错: {aff_e}")
+                log.error(f"增加用户 {user_id} 的好感度时出错: {aff_e}")
 
             try:
                 # 发放每日首次对话奖励
-                if await coin_service.grant_daily_message_reward(author.id):
-                    log.info(f"已为用户 {author.id} 发放每日首次对话奖励。")
+                if await coin_service.grant_daily_message_reward(user_id):
+                    log.info(f"已为用户 {user_id} 发放每日首次对话奖励。")
             except Exception as coin_e:
-                log.error(f"为用户 {author.id} 发放每日对话奖励时出错: {coin_e}")
+                log.error(f"为用户 {user_id} 发放每日对话奖励时出错: {coin_e}")
 
             # 4. --- 调用AI生成回复 ---
             # 记录发送给AI的核心上下文
@@ -240,8 +247,9 @@ class ChatService:
 
             # --- [新增] 根据上下文确定用于工具设置的用户ID ---
             user_id_for_settings: Optional[str] = None
-            if isinstance(message.channel, discord.Thread) and message.channel.owner_id:
-                user_id_for_settings = str(message.channel.owner_id)
+            thread = message.conversation.thread
+            if thread and thread.owner_id:
+                user_id_for_settings = thread.owner_id
                 log.info(
                     f"消息在帖子中，将使用帖主 {user_id_for_settings} 的工具设置。"
                 )
@@ -288,7 +296,7 @@ class ChatService:
             if two_stage_on and writer_model_id:
                 _prompt_model_name, _ = ai_service.parse_model_id(writer_model_id)
             messages = await prompt_service.build_chat_prompt(
-                user_name=author.display_name,
+                user_name=user_name,
                 message=user_content,
                 replied_message=replied_content,
                 images=image_data_list if image_data_list else None,
@@ -300,7 +308,7 @@ class ChatService:
                 personal_summary=None,
                 user_profile_data=user_profile_data,
                 model_name=_prompt_model_name,
-                channel=message.channel,
+                conversation=message.conversation,
                 conversation_memory=None,
                 latest_block=None,
                 output_format=output_format,
@@ -341,12 +349,12 @@ class ChatService:
                 _called_tools.append(name)
                 if name == "search":
                     _search_scopes.append(args.get("scope", ""))
-                part = await ai_service.tool_service.execute_tool_call(
+                part = await request.execute_tool_call(
+                    ai_service.tool_service,
                     call,
-                    channel=message.channel,
-                    user_id=author.id,
+                    user_id=user_id,
                     user_id_for_settings=user_id_for_settings,
-                    user_name=author.display_name,
+                    user_name=user_name,
                     fallback_query=rag_query,
                     channel_context=channel_context,
                 )
@@ -439,7 +447,7 @@ class ChatService:
             ai_response = result.content
 
             if not ai_response:
-                log.warning(f"AI服务未返回回复（重试+故障转移均失败），跳过用户 {author.id}。")
+                log.warning(f"AI服务未返回回复（重试+故障转移均失败），跳过用户 {user_id}。")
                 return None
 
             # --- 新增：调用新的个人记忆服务 ---
@@ -448,15 +456,15 @@ class ChatService:
             if user_profile_data:
                 try:
                     await personal_memory_service.update_and_conditionally_summarize_memory(
-                        user_id=author.id,
-                        user_name=author.display_name,
+                        user_id=user_id,
+                        user_name=user_name,
                         user_content=user_content,
                         ai_response=ai_response,
                         current_model=current_model,
                     )
                 except Exception as mem_e:
                     log.error(
-                        f"[ChatService] 用户 {author.id} 对话块总结失败，跳过: {mem_e}",
+                        f"[ChatService] 用户 {user_id} 对话块总结失败，跳过: {mem_e}",
                         exc_info=True,
                     )
 
@@ -471,9 +479,9 @@ class ChatService:
 
             # 6. --- 异步执行后续任务（不阻塞回复） ---
             # 此处现在只应包含不影响核心回复流程的日志记录等任务
-            # self._log_rag_summary(author, final_content, world_book_entries, final_response)
+            # self._log_rag_summary(user_id, user_name, user_content, [], final_response)
 
-            log.info(f"已为用户 {author.display_name} 生成AI回复: {final_response}")
+            log.info(f"已为用户 {user_name} 生成AI回复: {final_response}")
             return ChatResult(content=final_response, tools_called=_called_tools)
 
         except Exception as e:
@@ -494,7 +502,8 @@ class ChatService:
 
     async def _perform_post_response_tasks(
         self,
-        author: discord.User,
+        user_id: int,
+        user_name: str,
         guild_id: int,
         query: str,
         rag_entries: list,
@@ -504,11 +513,16 @@ class ChatService:
         # 好感度和奖励逻辑已前置，此处保留用于未来可能的其他后处理任务
 
         # 记录 RAG 诊断日志
-        # self._log_rag_summary(author, query, rag_entries, response)
+        # self._log_rag_summary(user_id, user_name, query, rag_entries, response)
         pass
 
     def _log_rag_summary(
-        self, author: discord.User, query: str, entries: list, response: str
+        self,
+        user_id: int,
+        user_name: str,
+        query: str,
+        entries: list,
+        response: str,
     ):
         """生成并记录 RAG 诊断摘要日志。"""
         try:
@@ -532,7 +546,7 @@ class ChatService:
 
             summary_log_message = (
                 f"\n--- RAG DIAGNOSTIC SUMMARY ---\n"
-                f"User: {author} ({author.id})\n"
+                f"User: {user_name} ({user_id})\n"
                 f'Initial Query: "{query}"\n'
                 f"Retrieved Docs:{retrieved_docs_summary}\n"
                 f'Final AI Response: "{response}"\n'

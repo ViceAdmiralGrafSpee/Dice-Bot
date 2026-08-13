@@ -8,10 +8,10 @@ from PIL import Image
 import io
 import json
 import re
-import discord
 
 from src.chat.config.prompts import PROMPT_CONFIG, PERSONA_VARIANTS
 from src.chat.config import chat_config
+from src.chat.platform import ConversationContext, ConversationKind
 from src.chat.services.ai.config.models import get_model_config, get_prompt_config
 from src.chat.services.event_service import event_service
 from src.config import BOT_NAME
@@ -39,6 +39,31 @@ class PromptService:
         初始化 PromptService。
         """
         pass
+
+    @staticmethod
+    def _format_thread_first_post(
+        conversation: Optional[ConversationContext],
+    ) -> Optional[str]:
+        """Format adapter-provided thread details without using a platform SDK."""
+
+        if (
+            conversation is None
+            or conversation.kind is not ConversationKind.THREAD
+            or conversation.thread is None
+            or not conversation.thread.starter_text
+        ):
+            return None
+
+        thread = conversation.thread
+        author_name = thread.owner_name or "未知作者"
+        tags = ", ".join(thread.tags) if thread.tags else "无"
+        return f"""<thread_first_post>
+帖子标题: {conversation.name}
+发帖人: {author_name}
+标签: {tags}
+首楼内容:
+{thread.starter_text}
+</thread_first_post>"""
 
     def _should_use_cache_optimized_build(self, model_name: Optional[str]) -> bool:
         """
@@ -249,7 +274,7 @@ class PromptService:
         personal_summary: Optional[str] = None,
         user_profile_data: Optional[Dict[str, Any]] = None,
         model_name: Optional[str] = None,
-        channel: Optional[Any] = None,
+        conversation: Optional[ConversationContext] = None,
         conversation_memory: Optional[str] = None,
         latest_block: Optional[Dict[str, Any]] = None,
         output_format: str = "gemini",
@@ -284,7 +309,7 @@ class PromptService:
                 personal_summary=personal_summary,
                 user_profile_data=user_profile_data,
                 model_name=model_name,
-                channel=channel,
+                conversation=conversation,
                 conversation_memory=conversation_memory,
                 latest_block=latest_block,
                 output_format=output_format,
@@ -306,7 +331,7 @@ class PromptService:
                 personal_summary=personal_summary,
                 user_profile_data=user_profile_data,
                 model_name=model_name,
-                channel=channel,
+                conversation=conversation,
                 conversation_memory=conversation_memory,
                 latest_block=latest_block,
                 output_format=output_format,
@@ -386,7 +411,7 @@ class PromptService:
         personal_summary: Optional[str] = None,
         user_profile_data: Optional[Dict[str, Any]] = None,
         model_name: Optional[str] = None,
-        channel: Optional[Any] = None,
+        conversation: Optional[ConversationContext] = None,
         conversation_memory: Optional[str] = None,
         latest_block: Optional[Dict[str, Any]] = None,
         output_format: str = "gemini",
@@ -400,61 +425,7 @@ class PromptService:
         """
         final_conversation = []
 
-        # --- 新增：帖子首楼注入 ---
-        # 使用 message_processor 中的通用检测函数
-        if channel and message:
-            from src.chat.services.message_processor import detect_bot_location
-
-            location_info = detect_bot_location(channel)
-            bot_user_id = (
-                channel.guild.me.id
-                if hasattr(channel, "guild") and channel.guild
-                else None
-            )
-
-            # 检查是否在帖子中（只要在帖子里就注入首楼）
-            if location_info["is_thread"] and bot_user_id:
-                try:
-                    thread = channel
-                    # 获取帖子首楼
-                    if thread.starter_message:
-                        first_message = thread.starter_message
-                    else:
-                        first_message = await thread.fetch_message(thread.id)
-
-                    if first_message and first_message.content:
-                        # 获取作者信息
-                        author_name = "未知作者"
-                        if thread.owner:
-                            author_name = thread.owner.display_name
-                        elif thread.owner_id:
-                            try:
-                                owner = await thread.guild.fetch_member(thread.owner_id)
-                                author_name = owner.display_name
-                            except discord.NotFound:
-                                pass
-
-                        # 构建帖子首楼注入
-                        starter_content = first_message.content
-                        thread_title = thread.name
-                        tags = (
-                            ", ".join([tag.name for tag in thread.applied_tags])
-                            if thread.applied_tags
-                            else "无"
-                        )
-
-                        thread_first_post = f"""<thread_first_post>
-帖子标题: {thread_title}
-发帖人: {author_name}
-标签: {tags}
-首楼内容:
-{starter_content}
-</thread_first_post>"""
-
-                        # 保存帖子首楼内容，稍后注入
-                        self._thread_first_post_to_inject = thread_first_post
-                except Exception as e:
-                    log.warning(f"获取帖子首楼内容失败: {e}")
+        thread_first_post = self._format_thread_first_post(conversation)
 
         # --- 新增：根据模型动态注入绕过限制的上下文 ---
         jailbreak_user = self._get_model_specific_prompt(
@@ -486,12 +457,10 @@ class PromptService:
         final_conversation.append({"role": "model", "parts": ["我在线啦，随时开聊！"]})
 
         # --- 注入帖子首楼内容（保存人设后面） ---
-        if hasattr(self, "_thread_first_post_to_inject"):
-            thread_first_post = self._thread_first_post_to_inject
+        if thread_first_post:
             final_conversation.append({"role": "user", "parts": [thread_first_post]})
             final_conversation.append({"role": "model", "parts": ["了解了"]})
             log.info("已将帖子首楼内容注入到人设之后")
-            delattr(self, "_thread_first_post_to_inject")
 
         # --- 用户画像注入（不包含好感度） ---
         user_profile_prompt = ""
@@ -788,19 +757,8 @@ class PromptService:
                 log.error(f"Pillow 无法打开附件图片。错误: {e}。")
 
         if current_user_parts:
-            # --- 精确清理：在注入前，替换 current_user_parts 中文本部分的 @提及 ---
-            from src.chat.services.context_service_test import get_context_service
-
-            _ctx_svc = get_context_service()
-            guild = channel.guild if channel and hasattr(channel, "guild") else None
-            cleaned_user_parts = []
-            for part in current_user_parts:
-                if isinstance(part, str):
-                    cleaned_user_parts.append(
-                        _ctx_svc.clean_message_content(part, guild)
-                    )
-                else:
-                    cleaned_user_parts.append(part)
+            # Platform adapters provide text that is already safe for prompts.
+            cleaned_user_parts = current_user_parts
 
             # Gemini API 不允许连续的 'user' 角色消息。
             # 如果频道历史的最后一条是 'user'，我们需要将当前输入合并进去。
@@ -837,7 +795,7 @@ class PromptService:
         personal_summary: Optional[str] = None,
         user_profile_data: Optional[Dict[str, Any]] = None,
         model_name: Optional[str] = None,
-        channel: Optional[Any] = None,
+        conversation: Optional[ConversationContext] = None,
         conversation_memory: Optional[str] = None,
         latest_block: Optional[Dict[str, Any]] = None,
         output_format: str = "gemini",
@@ -865,54 +823,7 @@ class PromptService:
         """
         final_conversation = []
 
-        # --- 帖子首楼注入（提前处理，但稍后注入）---
-        thread_first_post = None
-        if channel and message:
-            from src.chat.services.message_processor import detect_bot_location
-
-            location_info = detect_bot_location(channel)
-            bot_user_id = (
-                channel.guild.me.id
-                if hasattr(channel, "guild") and channel.guild
-                else None
-            )
-
-            if location_info["is_thread"] and bot_user_id:
-                try:
-                    thread = channel
-                    if thread.starter_message:
-                        first_message = thread.starter_message
-                    else:
-                        first_message = await thread.fetch_message(thread.id)
-
-                    if first_message and first_message.content:
-                        author_name = "未知作者"
-                        if thread.owner:
-                            author_name = thread.owner.display_name
-                        elif thread.owner_id:
-                            try:
-                                owner = await thread.guild.fetch_member(thread.owner_id)
-                                author_name = owner.display_name
-                            except discord.NotFound:
-                                pass
-
-                        starter_content = first_message.content
-                        thread_title = thread.name
-                        tags = (
-                            ", ".join([tag.name for tag in thread.applied_tags])
-                            if thread.applied_tags
-                            else "无"
-                        )
-
-                        thread_first_post = f"""<thread_first_post>
-帖子标题: {thread_title}
-发帖人: {author_name}
-标签: {tags}
-首楼内容:
-{starter_content}
-</thread_first_post>"""
-                except Exception as e:
-                    log.warning(f"获取帖子首楼内容失败: {e}")
+        thread_first_post = self._format_thread_first_post(conversation)
 
         # --- 时间准备 ---
         beijing_tz = timezone(timedelta(hours=8))
@@ -1219,18 +1130,8 @@ class PromptService:
                 log.error(f"Pillow 无法打开附件图片。错误: {e}。")
 
         if current_user_parts:
-            from src.chat.services.context_service_test import get_context_service
-
-            _ctx_svc = get_context_service()
-            guild = channel.guild if channel and hasattr(channel, "guild") else None
-            cleaned_user_parts = []
-            for part in current_user_parts:
-                if isinstance(part, str):
-                    cleaned_user_parts.append(
-                        _ctx_svc.clean_message_content(part, guild)
-                    )
-                else:
-                    cleaned_user_parts.append(part)
+            # Platform adapters provide text that is already safe for prompts.
+            cleaned_user_parts = current_user_parts
 
             if final_conversation and final_conversation[-1].get("role") == "user":
                 final_conversation[-1]["parts"].extend(cleaned_user_parts)

@@ -10,6 +10,8 @@ import asyncio
 # 导入新的 Service
 from src.chat.services.chat_service import chat_service, ChatResult
 from src.chat.services.message_processor import message_processor
+from src.chat.platform import PlatformRequestContext
+from src.chat.platform.discord import DiscordRequestContext, map_discord_message
 from src.chat.features.tools.functions.summarize_channel import text_to_summary_image
 
 
@@ -118,15 +120,21 @@ class AIChatCog(commands.Cog):
             log.info(f"用户 {message.author.id} 在全局黑名单中，已跳过。")
             return
 
+        incoming_message = await map_discord_message(message, processed_data)
+        request_context = DiscordRequestContext(
+            message=incoming_message,
+            raw_message=message,
+        )
+
         # 在显示“输入中”之前执行所有前置检查
-        if not await chat_service.should_process_message(message):
+        if not await chat_service.should_process_message(request_context):
             return
 
         # 显示"正在输入"状态，直到AI响应生成完毕
         chat_result: ChatResult | None = None
         async with message.channel.typing():
             # 注意：这里我们将已经处理过的数据传递下去
-            chat_result = await self.handle_chat_message(message, processed_data)
+            chat_result = await self.handle_chat_message(request_context)
             # 回复延迟：限制刷屏速度（typing 会持续显示，UX 自然）
             if chat_result and chat_result.content:
                 reply_delay = await chat_settings_service.get_reply_delay()
@@ -210,36 +218,13 @@ class AIChatCog(commands.Cog):
                 log.error(f"发送回复时发生未知错误: {e}", exc_info=True)
 
     async def handle_chat_message(
-        self, message: discord.Message, processed_data: dict
+        self, request: PlatformRequestContext
     ) -> ChatResult | None:
         """
         处理聊天消息（包括私聊和@mention），协调各个服务生成AI回复并返回其内容
         """
         try:
-            # 1. MessageProcessor 的处理已前移到 on_message 中
-
-            # 2. 使用 ChatService 获取AI回复
-            # --- 新增：获取并传递位置信息 ---
-            guild_name = message.guild.name if message.guild else "私信"
-            location_name = ""
-            if isinstance(message.channel, discord.Thread):
-                # 如果是帖子（子区），显示"父频道 -> 帖子名"
-                parent_channel_name = (
-                    message.channel.parent.name
-                    if message.channel.parent
-                    else "未知频道"
-                )
-                location_name = f"{parent_channel_name} -> {message.channel.name}"
-            elif isinstance(message.channel, discord.abc.GuildChannel):
-                # 确保是服务器频道再获取名字
-                location_name = message.channel.name
-            else:
-                # 否则（如私信），提供一个默认值
-                location_name = "私信中"
-
-            chat_result = await chat_service.handle_chat_message(
-                message, processed_data, guild_name, location_name
-            )
+            chat_result = await chat_service.handle_chat_message(request)
 
             # 3. 返回回复结果
             return chat_result
