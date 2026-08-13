@@ -341,6 +341,13 @@ async def get_model_configs_async() -> Dict[str, ModelConfig]:
     return db_configs
 
 
+def initialize_model_configs_without_database() -> None:
+    """Mark model overrides as intentionally empty for database-free runtimes."""
+    global _model_configs_cache
+    if _model_configs_cache is None:
+        _model_configs_cache = {}
+
+
 def get_model_configs() -> Dict[str, ModelConfig]:
     """
     同步获取所有模型配置（返回缓存）。

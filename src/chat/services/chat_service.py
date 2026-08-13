@@ -44,12 +44,45 @@ class ChatResult:
 
     content: str
     tools_called: List[str] = field(default_factory=list)
+    authoritative_outputs: List[str] = field(default_factory=list)
 
 
 class ChatService:
     """
     负责编排整个AI聊天响应流程。
     """
+
+    def __init__(self) -> None:
+        # Discord deployments historically require PostgreSQL. Lightweight
+        # adapters can explicitly disable these optional legacy features.
+        self._optional_postgres_enabled = True
+
+    def set_optional_postgres_enabled(self, enabled: bool) -> None:
+        self._optional_postgres_enabled = enabled
+        if not enabled:
+            log.info("未检测到完整 PostgreSQL 数据库；已跳过档案、记忆、好感度和币功能。")
+
+    async def _load_optional_user_context(
+        self,
+        user_id: str | int,
+        numeric_user_id: int,
+    ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], str]:
+        """Load PostgreSQL-backed context, or use neutral chat defaults."""
+
+        if not self._optional_postgres_enabled:
+            return None, None, "default"
+
+        try:
+            profile = await world_book_service.get_profile_by_user_id(user_id)
+            affection = await affection_service.get_affection_status(numeric_user_id)
+            persona = await persona_preference_service.get_persona_style(str(user_id))
+            return profile, affection, persona
+        except Exception as error:
+            log.warning(
+                "PostgreSQL 用户功能暂时不可用，本条消息使用默认上下文：%s",
+                error,
+            )
+            return None, None, "default"
 
     async def should_process_message(
         self, request: PlatformRequestContext
@@ -74,7 +107,7 @@ class ChatService:
             # 检查是否满足通行许可的例外条件
             pass_is_granted = False
             thread = message.conversation.thread
-            if thread and thread.owner_id:
+            if self._optional_postgres_enabled and thread and thread.owner_id:
                 # 修正逻辑：只有当帖主明确设置了个人CD时，才算拥有"通行许可"
                 owner_id = int(thread.owner_id)
                 owner_config = await coin_service.get_thread_cooldown_settings(owner_id)
@@ -149,8 +182,12 @@ class ChatService:
         else:
             location_name = message.conversation.name
 
-        # --- 个人记忆消息计数 ---
-        user_profile_data = await world_book_service.get_profile_by_user_id(user_id)
+        # PostgreSQL 是可选增强项；无数据库时仍可进行基础 AI 对话。
+        (
+            user_profile_data,
+            affection_status,
+            persona_style,
+        ) = await self._load_optional_user_context(user_id, numeric_user_id)
 
         user_content = message.text
         replied_content = (
@@ -165,6 +202,8 @@ class ChatService:
             }
             for image in message.images
         ]
+        authoritative_outputs: List[str] = []
+        called_tools: List[str] = []
 
         try:
             # 2. --- 上下文与知识库检索 ---
@@ -181,14 +220,6 @@ class ChatService:
                 await personal_memory_service.check_and_create_block_before_reply(
                     user_id=user_id
                 )
-
-            # --- 新增：集中获取所有上下文数据 ---
-            affection_status = await affection_service.get_affection_status(
-                numeric_user_id
-            )
-            persona_style = await persona_preference_service.get_persona_style(
-                str(user_id)
-            )
 
             # 获取记忆笔记（仅对有名片用户）
             memory_notes_text = None
@@ -211,18 +242,21 @@ class ChatService:
                     log.error(f"获取用户 {user_id} 最近聊天历史失败: {hist_e}")
 
             # 3. --- 好感度与奖励更新（前置） ---
-            try:
-                # 在生成回复前更新好感度，以确保日志顺序正确
-                await affection_service.increase_affection_on_message(numeric_user_id)
-            except Exception as aff_e:
-                log.error(f"增加用户 {user_id} 的好感度时出错: {aff_e}")
+            if self._optional_postgres_enabled:
+                try:
+                    # 在生成回复前更新好感度，以确保日志顺序正确
+                    await affection_service.increase_affection_on_message(
+                        numeric_user_id
+                    )
+                except Exception as aff_e:
+                    log.error(f"增加用户 {user_id} 的好感度时出错: {aff_e}")
 
-            try:
-                # 发放每日首次对话奖励
-                if await coin_service.grant_daily_message_reward(numeric_user_id):
-                    log.info(f"已为用户 {user_id} 发放每日首次对话奖励。")
-            except Exception as coin_e:
-                log.error(f"为用户 {user_id} 发放每日对话奖励时出错: {coin_e}")
+                try:
+                    # 发放每日首次对话奖励
+                    if await coin_service.grant_daily_message_reward(numeric_user_id):
+                        log.info(f"已为用户 {user_id} 发放每日首次对话奖励。")
+                except Exception as coin_e:
+                    log.error(f"为用户 {user_id} 发放每日对话奖励时出错: {coin_e}")
 
             # 4. --- 调用AI生成回复 ---
             # 记录发送给AI的核心上下文
@@ -335,7 +369,6 @@ class ChatService:
             )
 
             # 定义工具执行器（使用闭包追踪本次请求中调用的工具）
-            _called_tools: List[str] = []
             _search_scopes: List[str] = []
             _captured_tool_records: List[Dict[str, Any]] = []
 
@@ -347,7 +380,7 @@ class ChatService:
                 else:
                     name = getattr(call, "name", "")
                     args = dict(call.args) if call.args else {}
-                _called_tools.append(name)
+                called_tools.append(name)
                 if name == "search":
                     _search_scopes.append(args.get("scope", ""))
                 part = await request.execute_tool_call(
@@ -356,14 +389,23 @@ class ChatService:
                     user_id=user_id,
                     user_id_for_settings=user_id_for_settings,
                     user_name=user_name,
+                    platform=message.platform,
                     fallback_query=rag_query,
                     channel_context=channel_context,
                 )
                 # 捕获工具调用记录（供两阶段 Stage 2 使用）
-                func_resp = getattr(part, "function_response", None)
-                captured_response = (
-                    getattr(func_resp, "response", None) or {}
+                if isinstance(part, dict):
+                    captured_response = part
+                else:
+                    func_resp = getattr(part, "function_response", None)
+                    captured_response = getattr(func_resp, "response", None) or {}
+                    captured_response = dict(captured_response)
+                authoritative_output = captured_response.get(
+                    "authoritative_output"
                 )
+                if isinstance(authoritative_output, str) and authoritative_output:
+                    if authoritative_output not in authoritative_outputs:
+                        authoritative_outputs.append(authoritative_output)
                 _captured_tool_records.append(
                     {
                         "name": name,
@@ -447,14 +489,23 @@ class ChatService:
 
             ai_response = result.content
 
-            if not ai_response:
+            # Python 会在最终回复开头展示一份权威工具结果。模型有时会先把同一
+            # 骰子式再抄一遍（例如“🎲 1d6 = 2”），这里仅移除这种独立成行的
+            # 开头复述，保留后续的人格化说明。
+            if ai_response and authoritative_outputs:
+                ai_response = self._remove_repeated_dice_result_lines(
+                    ai_response,
+                    _captured_tool_records,
+                )
+
+            if not ai_response and not authoritative_outputs:
                 log.warning(f"AI服务未返回回复（重试+故障转移均失败），跳过用户 {user_id}。")
                 return None
 
             # --- 新增：调用新的个人记忆服务 ---
             # 在获得AI回复后，记录这次对话并根据需要触发总结
             # 传递 current_model 使总结逻辑跟随主模型
-            if user_profile_data:
+            if user_profile_data and ai_response:
                 try:
                     await personal_memory_service.update_and_conditionally_summarize_memory(
                         user_id=user_id,
@@ -470,7 +521,16 @@ class ChatService:
                     )
 
             # 5. --- 后处理与格式化 ---
-            final_response = self._format_ai_response(ai_response)
+            final_response = self._format_ai_response(ai_response) if ai_response else ""
+
+            # 数值和规则结算由 Python 锁定。LLM 只负责后续表述，不能覆盖结果。
+            if authoritative_outputs:
+                authoritative_block = "\n".join(authoritative_outputs)
+                final_response = (
+                    f"{authoritative_block}\n\n{final_response}"
+                    if final_response
+                    else authoritative_block
+                )
 
             # --- 为特定工具调用添加后缀 ---
             if _search_scopes and any(
@@ -483,11 +543,70 @@ class ChatService:
             # self._log_rag_summary(user_id, user_name, user_content, [], final_response)
 
             log.info(f"已为用户 {user_name} 生成AI回复: {final_response}")
-            return ChatResult(content=final_response, tools_called=_called_tools)
+            return ChatResult(
+                content=final_response,
+                tools_called=called_tools,
+                authoritative_outputs=authoritative_outputs,
+            )
 
         except Exception as e:
             log.error(f"[ChatService] 处理聊天消息时出错: {e}", exc_info=True)
+            if authoritative_outputs:
+                return ChatResult(
+                    content=(
+                        "\n".join(authoritative_outputs)
+                        + "\n\n（骰子结果已生成，但 AI 表述暂时失败。）"
+                    ),
+                    tools_called=called_tools,
+                    authoritative_outputs=authoritative_outputs,
+                )
             return ChatResult(content="抱歉，处理你的消息时出现了问题，请稍后再试。")
+
+    @staticmethod
+    def _remove_repeated_dice_result_lines(
+        ai_response: str,
+        captured_tool_records: List[Dict[str, Any]],
+    ) -> str:
+        """移除模型在回复开头重复输出的骰子结果行。"""
+        dice_results: List[tuple[str, str]] = []
+        for record in captured_tool_records:
+            if record.get("name") != "roll_dice":
+                continue
+            response = record.get("response")
+            if not isinstance(response, dict):
+                continue
+            result = response.get("result")
+            if not isinstance(result, dict):
+                continue
+            notation = result.get("notation")
+            total = result.get("total")
+            if isinstance(notation, str) and isinstance(total, (int, float)):
+                dice_results.append((notation, str(total)))
+
+        if not dice_results:
+            return ai_response
+
+        def is_repeated_result_line(line: str) -> bool:
+            normalized = "".join(line.lower().split()).strip("*_`")
+            if normalized.startswith("🎲"):
+                normalized = normalized[1:].strip("*_`")
+            normalized = normalized.rstrip("。.!！*_`")
+            return any(
+                normalized.startswith(
+                    f"{''.join(notation.lower().split())}="
+                )
+                and normalized.endswith(f"={total}")
+                for notation, total in dice_results
+            )
+
+        lines = ai_response.splitlines()
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and is_repeated_result_line(lines[0]):
+            lines.pop(0)
+            while lines and not lines[0].strip():
+                lines.pop(0)
+        return "\n".join(lines).lstrip()
 
     def _format_ai_response(self, ai_response: str) -> str:
         """清理和格式化AI的原始回复。"""

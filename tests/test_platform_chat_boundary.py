@@ -161,7 +161,7 @@ async def test_chat_precheck_accepts_platform_neutral_group_message():
 
 
 @pytest.mark.asyncio
-async def test_chat_generation_uses_platform_message_without_raw_discord_object():
+async def test_chat_generation_works_without_discord_or_postgres():
     incoming = IncomingMessage(
         platform="qq",
         message_id="90009",
@@ -201,22 +201,22 @@ async def test_chat_generation_uses_platform_message_without_raw_discord_object(
             chat_service_module.affection_service,
             "get_affection_status",
             new=AsyncMock(return_value=None),
-        ),
+        ) as affection_lookup,
         patch.object(
             chat_service_module.persona_preference_service,
             "get_persona_style",
             new=AsyncMock(return_value="default"),
-        ),
+        ) as persona_lookup,
         patch.object(
             chat_service_module.affection_service,
             "increase_affection_on_message",
             new=AsyncMock(),
-        ),
+        ) as affection_update,
         patch.object(
             chat_service_module.coin_service,
             "grant_daily_message_reward",
             new=AsyncMock(return_value=False),
-        ),
+        ) as coin_reward,
         patch.object(
             chat_service_module.chat_settings_service,
             "get_current_ai_model",
@@ -264,12 +264,18 @@ async def test_chat_generation_uses_platform_message_without_raw_discord_object(
             return_value=generation_params,
         ),
     ):
-        result = await ChatService().handle_chat_message(request)
+        service = ChatService()
+        service.set_optional_postgres_enabled(False)
+        result = await service.handle_chat_message(request)
 
     assert result is not None
     assert result.content == "门锁看起来很旧。"
     request.get_formatted_history.assert_awaited_once_with()
-    profile_lookup.assert_awaited_once_with("10001")
+    profile_lookup.assert_not_awaited()
+    affection_lookup.assert_not_awaited()
+    persona_lookup.assert_not_awaited()
+    affection_update.assert_not_awaited()
+    coin_reward.assert_not_awaited()
     prompt_kwargs = build_prompt.await_args.kwargs
     assert prompt_kwargs["user_name"] == "调查员"
     assert prompt_kwargs["message"] == "检查门锁"

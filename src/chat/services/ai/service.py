@@ -72,6 +72,20 @@ class AIService:
         await get_model_configs_async()
         self._initialized = True
 
+    async def initialize_without_database(self):
+        """Initialize providers from environment variables only.
+
+        This is used by lightweight platform runtimes when the optional
+        PostgreSQL configuration service is not running.
+        """
+        if self._initialized:
+            return
+        from .config.models import initialize_model_configs_without_database
+
+        self._initialize_providers()
+        initialize_model_configs_without_database()
+        self._initialized = True
+
     def _initialize_providers(self):
         """同步初始化 Provider（从环境变量回退，向后兼容）"""
         provider_configs = _get_provider_configs_from_env()
