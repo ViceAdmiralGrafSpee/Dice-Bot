@@ -30,6 +30,7 @@ from src.chat.platform.onebot.persistent_chat import (
     handle_persistent_onebot_chat_event,
 )
 from src.chat.platform.onebot.transport import OneBotWebSocketClient
+from src.chat.tools import PortableToolService, ToolRegistry
 
 
 log = logging.getLogger(__name__)
@@ -56,16 +57,6 @@ class OneBotClient(Protocol):
     def events(self) -> Any: ...
 
     async def send_message(self, event: Mapping[str, Any], text: str) -> None: ...
-
-
-class NoToolsService:
-    """Empty tool boundary used until platform-neutral tools are selected."""
-
-    async def get_dynamic_tools_for_context(self, *_args: Any, **_kwargs: Any) -> list:
-        return []
-
-    async def execute_tool_call(self, *_args: Any, **_kwargs: Any) -> Any:
-        raise RuntimeError("QQ 入口当前没有加载任何工具")
 
 
 EventHandler = Callable[[OneBotClient, Mapping[str, Any], ChatCore], Awaitable[bool]]
@@ -133,12 +124,20 @@ async def initialize_qq_chat_core(settings: QQBotSettings) -> ChatCore:
     from src.chat.services.chat_service import chat_service
     from src.chat.utils.database import chat_db_manager
     from src.database.database import optional_chat_database_is_ready
+    from src.chat.dice import register_dice_tools
 
     await chat_db_manager.init_async()
     await world_book_db_manager.init_async()
 
-    no_tools = NoToolsService()
-    ai_service.set_tools([], {}, no_tools)
+    tool_registry = ToolRegistry()
+    register_dice_tools(tool_registry)
+    tool_service = PortableToolService(tool_registry)
+    declarations = tool_registry.declarations()
+    ai_service.set_tools(
+        declarations,
+        {declaration.name: declaration.function for declaration in declarations},
+        tool_service,
+    )
 
     postgres_ready = await optional_chat_database_is_ready()
     chat_service.set_optional_postgres_enabled(postgres_ready)
@@ -156,7 +155,10 @@ async def initialize_qq_chat_core(settings: QQBotSettings) -> ChatCore:
     # The original Discord UI stores its model selection in SQLite. QQ has no
     # such UI yet, so the process configuration is the source of truth.
     await chat_db_manager.set_global_setting("ai_model", settings.ai_model)
-    log.info("QQ 聊天核心已就绪，当前模型：%s（工具暂未加载）", settings.ai_model)
+    log.info(
+        "QQ 聊天核心已就绪，当前模型：%s（已加载工具：roll_dice）",
+        settings.ai_model,
+    )
     return chat_service
 
 

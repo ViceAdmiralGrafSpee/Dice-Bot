@@ -44,6 +44,7 @@ class ChatResult:
 
     content: str
     tools_called: List[str] = field(default_factory=list)
+    authoritative_outputs: List[str] = field(default_factory=list)
 
 
 class ChatService:
@@ -201,6 +202,8 @@ class ChatService:
             }
             for image in message.images
         ]
+        authoritative_outputs: List[str] = []
+        called_tools: List[str] = []
 
         try:
             # 2. --- 上下文与知识库检索 ---
@@ -366,7 +369,6 @@ class ChatService:
             )
 
             # 定义工具执行器（使用闭包追踪本次请求中调用的工具）
-            _called_tools: List[str] = []
             _search_scopes: List[str] = []
             _captured_tool_records: List[Dict[str, Any]] = []
 
@@ -378,7 +380,7 @@ class ChatService:
                 else:
                     name = getattr(call, "name", "")
                     args = dict(call.args) if call.args else {}
-                _called_tools.append(name)
+                called_tools.append(name)
                 if name == "search":
                     _search_scopes.append(args.get("scope", ""))
                 part = await request.execute_tool_call(
@@ -387,14 +389,23 @@ class ChatService:
                     user_id=user_id,
                     user_id_for_settings=user_id_for_settings,
                     user_name=user_name,
+                    platform=message.platform,
                     fallback_query=rag_query,
                     channel_context=channel_context,
                 )
                 # 捕获工具调用记录（供两阶段 Stage 2 使用）
-                func_resp = getattr(part, "function_response", None)
-                captured_response = (
-                    getattr(func_resp, "response", None) or {}
+                if isinstance(part, dict):
+                    captured_response = part
+                else:
+                    func_resp = getattr(part, "function_response", None)
+                    captured_response = getattr(func_resp, "response", None) or {}
+                    captured_response = dict(captured_response)
+                authoritative_output = captured_response.get(
+                    "authoritative_output"
                 )
+                if isinstance(authoritative_output, str) and authoritative_output:
+                    if authoritative_output not in authoritative_outputs:
+                        authoritative_outputs.append(authoritative_output)
                 _captured_tool_records.append(
                     {
                         "name": name,
@@ -503,6 +514,11 @@ class ChatService:
             # 5. --- 后处理与格式化 ---
             final_response = self._format_ai_response(ai_response)
 
+            # 数值和规则结算由 Python 锁定。LLM 只负责后续表述，不能覆盖结果。
+            if authoritative_outputs:
+                authoritative_block = "\n".join(authoritative_outputs)
+                final_response = f"{authoritative_block}\n\n{final_response}"
+
             # --- 为特定工具调用添加后缀 ---
             if _search_scopes and any(
                 scope == "tutorial" for scope in _search_scopes
@@ -514,10 +530,23 @@ class ChatService:
             # self._log_rag_summary(user_id, user_name, user_content, [], final_response)
 
             log.info(f"已为用户 {user_name} 生成AI回复: {final_response}")
-            return ChatResult(content=final_response, tools_called=_called_tools)
+            return ChatResult(
+                content=final_response,
+                tools_called=called_tools,
+                authoritative_outputs=authoritative_outputs,
+            )
 
         except Exception as e:
             log.error(f"[ChatService] 处理聊天消息时出错: {e}", exc_info=True)
+            if authoritative_outputs:
+                return ChatResult(
+                    content=(
+                        "\n".join(authoritative_outputs)
+                        + "\n\n（骰子结果已生成，但 AI 表述暂时失败。）"
+                    ),
+                    tools_called=called_tools,
+                    authoritative_outputs=authoritative_outputs,
+                )
             return ChatResult(content="抱歉，处理你的消息时出现了问题，请稍后再试。")
 
     def _format_ai_response(self, ai_response: str) -> str:
