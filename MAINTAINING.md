@@ -247,7 +247,7 @@ NapCat 是 QQ 收发层，`src.qq_bot` 是机器人聊天、记忆和规则工�
 .\.venv\Scripts\python.exe -m pytest -q tests/test_command_registry.py tests/test_dice_engine.py tests/test_dnd5e_rules.py tests/test_dnd5e_tool_calling.py tests/test_rule_system_registry.py tests/test_trpg_repository.py tests/test_character_draft_workflow.py tests/test_dnd5e_character_import.py tests/test_dnd5r_xlsx_import.py tests/test_onebot_event_mapper.py tests/test_onebot_file_transfer.py tests/test_dnd5r_qq_character_commands.py tests/test_sqlite_conversation_memory.py tests/test_qq_bot_entrypoint.py tests/test_platform_models.py
 ```
 
-完成长期记忆实现后，不依赖真实 PostgreSQL 的轻量回归结果为 **163 passed**。以下 8 个文件要求真实 PostgreSQL、旧迁移核对数据或专用 fixture，不属于轻量套件：`test_affection_service_pg.py`、`test_coin_service_pg.py`、`test_economy_integration.py`、`test_economy_user_migration.py`、`test_economy_user_models.py`、`test_interaction_service_pg.py`、`test_persona_preference.py`、`test_warning_service_pg.py`。如果 Windows 测试环境拒绝使用系统临时目录，可在仓库内临时指定：
+完成长期记忆实现后，不依赖真实 PostgreSQL 的轻量回归结果为 **166 passed**。以下 8 个文件要求真实 PostgreSQL、旧迁移核对数据或专用 fixture，不属于轻量套件：`test_affection_service_pg.py`、`test_coin_service_pg.py`、`test_economy_integration.py`、`test_economy_user_migration.py`、`test_economy_user_models.py`、`test_interaction_service_pg.py`、`test_persona_preference.py`、`test_warning_service_pg.py`。如果 Windows 测试环境拒绝使用系统临时目录，可在仓库内临时指定：
 
 完整轻量套件可用 PowerShell 动态排除上述文件，避免新增测试被旧的显式列表漏掉：
 
@@ -291,6 +291,7 @@ $lightTests = Get-ChildItem tests -Filter "test_*.py" |
 本轮长期记忆工作建立在 GitHub `feat/character-archive@fcd4e30` 之上。本地按小目标形成以下提交；推送后仍应重新查询 GitHub 与 Gitee 的实际 SHA：
 
 ```text
+2f85169 fix: gate optional postgres capabilities
 56c938b fix: require secure embedding endpoints
 b74a5cc feat: retrieve long-term memory during QQ chat
 57a9fb8 feat: add external API embeddings for memory
@@ -337,6 +338,7 @@ fcd4e30 feat: add safe character archiving
 - 已增加只启动 ParadeDB/PostgreSQL 的数据库专用 Compose；数据库固定绑定 `127.0.0.1:5432`，镜像锁定版本和 digest。
 - 已提供临时空库 Alembic 验证器和备份/恢复演练说明；当前单一 migration head 为 `add_conv_api_embedding`。
 - PostgreSQL 档案、长期记忆、记忆笔记、人格、好感度和金币已拆成独立能力，不再全开全关。
+- `POSTGRES_CAPABILITIES` 可进一步显式限制应用能力；QQ 长期记忆部署使用 `profiles,conversation_memory`，即使旧迁移建立了其他社区表也不会调用金币、好感度、人格或记忆笔记路径。
 - QQ 首次聊天会以 `qq:<用户ID>` 自动建立最小档案；Discord 保留历史原始 ID 兼容性。
 - 外部 Embedding 使用独立 OpenAI-compatible Provider，不绑定 DeepSeek；向量使用专用 `api_embedding halfvec(1024)`。
 - 长期记忆会在主聊天流程中自动生成对话块并进行向量 + BM25/RRF 检索，不要求 LLM 主动调用工具；Embedding 故障时普通聊天继续工作。
