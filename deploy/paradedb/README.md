@@ -70,6 +70,27 @@ cd /home/ubuntu/repos/Dice-Bot
 迁移 head、长期记忆表和索引，然后删除临时数据库。它不会连接或修改生产库。
 验证失败时不要启动 QQ Bot 的 PostgreSQL 能力。
 
+## 外部 Embedding
+
+长期记忆的聊天模型与 Embedding Provider 相互独立。DeepSeek 可以继续负责聊天，
+Embedding 使用另一个兼容 OpenAI `/embeddings` 接口的外部 Provider。只在 VPS 私密
+`.env` 中添加：
+
+```dotenv
+VECTOR_MODE=api
+EMBEDDING_PROVIDER=openai_compatible
+EMBEDDING_API_BASE_URL=https://你的Provider地址/v1
+EMBEDDING_API_KEY=只保存在VPS的真实Key
+EMBEDDING_MODEL=实际的1024维Embedding模型
+EMBEDDING_DIMENSION=1024
+EMBEDDING_API_TIMEOUT_SECONDS=30
+EMBEDDING_SEND_DIMENSIONS=false
+```
+
+所选模型必须返回正好 1024 维向量。如果 Provider 需要请求中的 `dimensions`
+参数，再把 `EMBEDDING_SEND_DIMENSIONS` 改为 `true`。程序会拒绝维度错误、非数字或
+非有限数值，不会截断或填充向量，也不会改用 DeepSeek 伪造 embedding。
+
 ## 备份
 
 建议每天执行一次自定义格式逻辑备份，并把至少一份副本保存在 VPS 之外。

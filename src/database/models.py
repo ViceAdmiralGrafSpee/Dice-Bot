@@ -677,6 +677,13 @@ class ConversationBlock(Base):
             postgresql_with={"m": 16, "ef_construction": 64},
             postgresql_ops={"qwen_embedding": "halfvec_cosine_ops"},
         ),
+        Index(
+            "idx_conv_api_embedding_hnsw",
+            "api_embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"api_embedding": "halfvec_cosine_ops"},
+        ),
         # 用户ID索引用于过滤
         Index("idx_conv_user_id", "user_id"),
         # 开始时间索引用于排序
@@ -727,6 +734,11 @@ class ConversationBlock(Base):
         HALFVEC(QWEN_EMBEDDING_DIMENSION),
         nullable=True,
         comment="Qwen3-Embedding-0.6B 模型的对话内容向量嵌入（用于语义搜索）",
+    )
+    api_embedding: Mapped[list[float] | None] = mapped_column(
+        HALFVEC(EMBEDDING_DIMENSION),
+        nullable=True,
+        comment="外部 API Provider 的对话内容向量嵌入（1024维）",
     )
 
     # 数据库管理时间戳

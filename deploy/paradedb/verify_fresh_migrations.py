@@ -37,6 +37,7 @@ REQUIRED_CONVERSATION_INDEXES = frozenset(
         "idx_conv_text_bm25",
         "idx_conv_bge_embedding_hnsw",
         "idx_conv_qwen_embedding_hnsw",
+        "idx_conv_api_embedding_hnsw",
         "idx_conv_user_id",
     }
 )

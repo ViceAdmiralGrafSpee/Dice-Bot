@@ -75,7 +75,11 @@ class ConversationMemorySearchService:
             检索结果列表
         """
         embedding_col = await get_embedding_column()
-        embedding_model = "Qwen" if embedding_col == "qwen_embedding" else "BGE"
+        embedding_model = {
+            "api_embedding": "External API",
+            "qwen_embedding": "Qwen",
+            "bge_embedding": "BGE",
+        }.get(embedding_col, "Unknown")
 
         # 混合搜索配置
         top_k_vector = self.config.get("top_k_vector", 10)

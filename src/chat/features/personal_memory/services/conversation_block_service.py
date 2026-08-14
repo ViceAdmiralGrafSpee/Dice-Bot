@@ -240,10 +240,13 @@ class ConversationBlockService:
             )
 
             # 设置对应的嵌入向量
-            if embedding_col == "qwen_embedding":
-                block.qwen_embedding = embedding
-            else:
-                block.bge_embedding = embedding
+            if embedding_col not in {
+                "api_embedding",
+                "qwen_embedding",
+                "bge_embedding",
+            }:
+                raise RuntimeError("no safe embedding storage column is configured")
+            setattr(block, embedding_col, embedding)
 
             sess.add(block)
             await sess.flush()
@@ -526,6 +529,7 @@ class ConversationBlockService:
                     "end_time": block.end_time,
                     "bge_embedding": block.bge_embedding is not None,
                     "qwen_embedding": block.qwen_embedding is not None,
+                    "api_embedding": block.api_embedding is not None,
                 }
                 for block in blocks
             ]

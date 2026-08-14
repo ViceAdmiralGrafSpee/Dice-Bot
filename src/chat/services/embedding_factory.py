@@ -4,7 +4,7 @@
 
 支持三种向量模式:
 - "none": 无向量模式，返回 NoneEmbeddingService（所有 embedding 操作返回 None）
-- "api": API 向量模式，使用 Gemini Embedding API
+- "api": 独立的 OpenAI-compatible 外部 Embedding API
 - "local": 本地向量模式，使用 Ollama 本地模型
 
 使用方式:
@@ -55,39 +55,6 @@ class NoneEmbeddingService:
     async def check_connection(self) -> bool:
         """无向量模式始终返回 True"""
         return True
-
-
-class ApiEmbeddingService:
-    """API 向量模式的服务，使用 AIService Embedding API"""
-
-    def __init__(self):
-        self._ai_service = None
-
-    def _get_ai_service(self):
-        """延迟导入 AIService 以避免循环导入"""
-        if self._ai_service is None:
-            from src.chat.services.ai.service import ai_service
-
-            self._ai_service = ai_service
-        return self._ai_service
-
-    async def generate_embedding(
-        self,
-        text: str,
-        task_type: str = "retrieval_document",
-        title: Optional[str] = None,
-    ) -> Optional[List[float]]:
-        """使用 AIService 生成 embedding"""
-        service = self._get_ai_service()
-        return await service.generate_embedding(text)
-
-    async def check_connection(self) -> bool:
-        """检查 AIService 是否可用"""
-        try:
-            service = self._get_ai_service()
-            return service.is_available()
-        except Exception:
-            return False
 
 
 class LocalEmbeddingService:
@@ -167,7 +134,14 @@ def _create_service(mode: VectorMode) -> EmbeddingServiceProtocol:
     if mode == "none":
         return NoneEmbeddingService()
     elif mode == "api":
-        return ApiEmbeddingService()
+        from src.chat.services.external_embedding_service import (
+            ExternalEmbeddingSettings,
+            OpenAICompatibleEmbeddingService,
+        )
+
+        return OpenAICompatibleEmbeddingService(
+            ExternalEmbeddingSettings.from_environ()
+        )
     elif mode == "local":
         return LocalEmbeddingService()
     else:
@@ -207,15 +181,14 @@ def get_embedding_column_for_mode(mode: Optional[VectorMode] = None) -> str:
         mode: 向量模式，如果为 None 则使用全局配置 VECTOR_MODE
 
     Returns:
-        embedding 列名，如果模式为 "none" 或 "api" 则返回空字符串
+        embedding 列名，如果模式为 "none" 则返回空字符串
     """
     use_mode = mode or VECTOR_MODE
 
     if use_mode == "none":
         return ""
     elif use_mode == "api":
-        # API 模式暂不支持数据库存储，返回空
-        return ""
+        return "api_embedding"
     elif use_mode == "local":
         # 本地模式默认使用 qwen_embedding
         return "qwen_embedding"
@@ -227,11 +200,13 @@ async def get_embedding_column() -> str:
     异步获取当前使用的 embedding 列名
 
     根据数据库配置返回当前使用的 embedding 列名。
-    仅在本地向量模式下有效。
+    API 模式使用独立的 api_embedding 列；本地模式继续动态选择模型列。
 
     Returns:
         embedding 列名
     """
+    if VECTOR_MODE == "api":
+        return "api_embedding"
     if VECTOR_MODE != "local":
         return ""
 
