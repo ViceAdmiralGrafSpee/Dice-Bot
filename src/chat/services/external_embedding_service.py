@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import math
 import os
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -57,6 +58,24 @@ class ExternalEmbeddingSettings:
         if provider != "openai_compatible":
             raise EmbeddingConfigurationError(
                 f"unsupported EMBEDDING_PROVIDER: {provider}"
+            )
+        parsed_base_url = urlparse(base_url)
+        if (
+            parsed_base_url.scheme not in {"http", "https"}
+            or not parsed_base_url.hostname
+            or parsed_base_url.username
+            or parsed_base_url.password
+        ):
+            raise EmbeddingConfigurationError(
+                "EMBEDDING_API_BASE_URL must be a valid HTTP(S) URL without credentials"
+            )
+        loopback_hosts = {"localhost", "127.0.0.1", "::1"}
+        if (
+            parsed_base_url.scheme != "https"
+            and parsed_base_url.hostname.lower() not in loopback_hosts
+        ):
+            raise EmbeddingConfigurationError(
+                "EMBEDDING_API_BASE_URL must use HTTPS unless it targets loopback"
             )
         try:
             dimension = int(

@@ -37,6 +37,29 @@ def test_external_settings_require_exact_database_dimension() -> None:
         )
 
 
+def test_external_settings_reject_public_plaintext_endpoint() -> None:
+    with pytest.raises(EmbeddingConfigurationError, match="must use HTTPS"):
+        ExternalEmbeddingSettings.from_environ(
+            {
+                "EMBEDDING_API_BASE_URL": "http://embedding.example/v1",
+                "EMBEDDING_API_KEY": "secret",
+                "EMBEDDING_MODEL": "example-1024",
+            }
+        )
+
+
+def test_external_settings_allow_loopback_plaintext_endpoint() -> None:
+    settings = ExternalEmbeddingSettings.from_environ(
+        {
+            "EMBEDDING_API_BASE_URL": "http://127.0.0.1:8080/v1",
+            "EMBEDDING_API_KEY": "secret",
+            "EMBEDDING_MODEL": "example-1024",
+        }
+    )
+
+    assert settings.base_url == "http://127.0.0.1:8080/v1"
+
+
 @pytest.mark.asyncio
 async def test_openai_compatible_provider_returns_validated_vector() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
