@@ -17,6 +17,9 @@ from src.chat.utils.database import chat_db_manager
 from src.chat.features.personal_memory.services.personal_memory_service import (
     personal_memory_service,
 )
+from src.chat.features.personal_memory.services.conversation_memory_search_service import (
+    conversation_memory_search_service,
+)
 from src.chat.features.personal_memory.services.user_memory_note_service import (
     user_memory_note_service,
 )
@@ -195,6 +198,39 @@ class ChatService:
 
         return True
 
+    async def _prepare_long_term_memory(
+        self,
+        *,
+        memory_user_id: str,
+        query: str,
+        profile_available: bool,
+    ) -> str | None:
+        """Persist a completed history block, then retrieve relevant old blocks."""
+
+        if not profile_available or not self._postgres_capabilities.long_term_memory:
+            return None
+        try:
+            await personal_memory_service.check_and_create_block_before_reply(
+                user_id=memory_user_id
+            )
+            memory_blocks = await conversation_memory_search_service.search(
+                user_id=memory_user_id,
+                query=query,
+            )
+            return (
+                conversation_memory_search_service.format_blocks_for_context(
+                    memory_blocks
+                )
+                or None
+            )
+        except Exception as error:
+            log.error(
+                "检索用户 %s 的长期记忆失败，本次继续普通聊天: %s",
+                memory_user_id,
+                error,
+            )
+            return None
+
     async def handle_chat_message(
         self,
         request: PlatformRequestContext,
@@ -267,11 +303,11 @@ class ChatService:
             if replied_content:
                 rag_query = f"{replied_content}\n{user_content}"
 
-            # 确保对话块在工具检索前创建（副作用必须保留）
-            if user_profile_data and self._postgres_capabilities.long_term_memory:
-                await personal_memory_service.check_and_create_block_before_reply(
-                    user_id=memory_user_id
-                )
+            conversation_memory_text = await self._prepare_long_term_memory(
+                memory_user_id=memory_user_id,
+                query=rag_query,
+                profile_available=bool(user_profile_data),
+            )
 
             # 获取记忆笔记（仅对有名片用户）
             memory_notes_text = None
@@ -397,7 +433,7 @@ class ChatService:
                 user_profile_data=user_profile_data,
                 model_name=_prompt_model_name,
                 conversation=message.conversation,
-                conversation_memory=None,
+                conversation_memory=conversation_memory_text,
                 latest_block=None,
                 output_format=output_format,
                 persona_style=persona_style,
