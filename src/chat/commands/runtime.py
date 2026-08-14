@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import inspect
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Protocol
+
+from src.chat.actions import ActionContext
 
 
 @dataclass(frozen=True, slots=True)
@@ -13,6 +16,7 @@ class CommandRequest:
     name: str
     arguments: str
     raw_text: str
+    context: ActionContext = field(default_factory=ActionContext)
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,8 +26,10 @@ class CommandResult:
     content: str
 
 
-class CommandHandler(Protocol):
-    def __call__(self, request: CommandRequest) -> CommandResult: ...
+CommandHandler = Callable[
+    [CommandRequest],
+    CommandResult | Awaitable[CommandResult],
+]
 
 
 @dataclass(slots=True)
@@ -52,8 +58,12 @@ class CommandRegistry:
         for item in normalized_names:
             self._handlers[item] = handler
 
-    def dispatch(self, text: str) -> CommandResult | None:
-        """Return ``None`` when text does not match a registered command."""
+    async def dispatch(
+        self,
+        text: str,
+        context: ActionContext | None = None,
+    ) -> CommandResult | None:
+        """Await a command handler, or return ``None`` when none matches."""
 
         stripped = text.strip()
         if not stripped.startswith("."):
@@ -70,8 +80,12 @@ class CommandRegistry:
                 name=name,
                 arguments=remainder.strip(),
                 raw_text=stripped,
+                context=context or ActionContext(),
             )
-            return self._handlers[name](request)
+            result = self._handlers[name](request)
+            if inspect.isawaitable(result):
+                return await result
+            return result
         return None
 
     @staticmethod

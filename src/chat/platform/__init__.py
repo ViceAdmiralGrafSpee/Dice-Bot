@@ -5,6 +5,8 @@ from .models import (
     ConversationKind,
     IncomingMessage,
     MessageImage,
+    MessageFile,
+    MessageFileProvider,
     RepliedMessage,
     ThreadContext,
 )
@@ -15,6 +17,8 @@ __all__ = [
     "ConversationKind",
     "IncomingMessage",
     "MessageImage",
+    "MessageFile",
+    "MessageFileProvider",
     "PlatformRequestContext",
     "RepliedMessage",
     "ThreadContext",

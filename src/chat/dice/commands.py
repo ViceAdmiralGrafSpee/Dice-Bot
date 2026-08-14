@@ -43,10 +43,10 @@ def register_dice_commands(
     )
 
 
-def handle_dice_command(text: str, engine: DiceEngine) -> str | None:
+async def handle_dice_command(text: str, engine: DiceEngine) -> str | None:
     """Compatibility wrapper around the shared command registry."""
 
     registry = CommandRegistry()
     register_dice_commands(registry, engine)
-    result = registry.dispatch(text)
+    result = await registry.dispatch(text)
     return None if result is None else result.content

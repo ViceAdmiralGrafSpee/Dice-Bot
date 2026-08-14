@@ -32,7 +32,8 @@ class FakeRuleSystem:
         )
 
 
-def test_registers_rule_system_and_installs_its_commands() -> None:
+@pytest.mark.asyncio
+async def test_registers_rule_system_and_installs_its_commands() -> None:
     systems = RuleSystemRegistry()
     system = FakeRuleSystem("example")
     systems.register(system)
@@ -43,7 +44,7 @@ def test_registers_rule_system_and_installs_its_commands() -> None:
     systems.register_tools(tools)
 
     assert systems.get("EXAMPLE") is system
-    assert commands.dispatch(".example") == CommandResult("example")
+    assert await commands.dispatch(".example") == CommandResult("example")
     assert tools.get("example_tool") is not None
 
 

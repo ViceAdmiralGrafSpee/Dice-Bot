@@ -76,22 +76,24 @@ def test_dnd5e_check_resolves_mode_and_modifier_in_python(
         ),
     ],
 )
-def test_dnd5e_command_dispatches_explicit_2014_rules(
+@pytest.mark.asyncio
+async def test_dnd5e_command_dispatches_explicit_2014_rules(
     text: str,
     rolls: tuple[int, ...],
     expected: str,
 ) -> None:
-    result = _dnd5e_registry(*rolls).dispatch(text)
+    result = await _dnd5e_registry(*rolls).dispatch(text)
 
     assert result is not None
     assert result.content == expected
 
 
-def test_dnd5e_does_not_claim_dnd5r_or_ambiguous_aliases() -> None:
+@pytest.mark.asyncio
+async def test_dnd5e_does_not_claim_dnd5r_or_ambiguous_aliases() -> None:
     registry = _dnd5e_registry()
 
-    assert registry.dispatch(".dnd check +5") is None
-    assert registry.dispatch(".dnd5r check +5") is None
+    assert await registry.dispatch(".dnd check +5") is None
+    assert await registry.dispatch(".dnd5r check +5") is None
 
 
 @pytest.mark.parametrize(
@@ -103,14 +105,17 @@ def test_dnd5e_does_not_claim_dnd5r_or_ambiguous_aliases() -> None:
         ".dnd5e check five",
     ],
 )
-def test_invalid_dnd5e_command_returns_usage_without_rolling(text: str) -> None:
+@pytest.mark.asyncio
+async def test_invalid_dnd5e_command_returns_usage_without_rolling(
+    text: str,
+) -> None:
     engine = Dnd5eEngine(roll_d20=lambda: pytest.fail("不应为无效命令掷骰"))
     commands = CommandRegistry()
     systems = RuleSystemRegistry()
     systems.register(Dnd5eRuleSystem(engine=engine))
     systems.register_commands(commands)
 
-    result = commands.dispatch(text)
+    result = await commands.dispatch(text)
 
     assert result is not None
     assert result.content.startswith("DND 5e 命令格式：")

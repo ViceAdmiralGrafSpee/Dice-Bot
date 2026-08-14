@@ -4,8 +4,16 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 import src.chat.services.chat_service as chat_service_module
+from src.chat.actions import ActionContext, ActionResult
+from src.chat.commands import CommandRegistry
 from src.chat.platform import ConversationContext, ConversationKind, IncomingMessage
-from src.chat.rules.dnd5e import Dnd5eEngine, register_dnd5e_tools
+from src.chat.rules.dnd5e import (
+    D20RollMode,
+    Dnd5eCheckRequest,
+    Dnd5eEngine,
+    register_dnd5e_commands,
+    register_dnd5e_tools,
+)
 from src.chat.services.chat_service import ChatService
 from src.chat.tools import PortableToolService, ToolRegistry
 
@@ -13,6 +21,67 @@ from src.chat.tools import PortableToolService, ToolRegistry
 def _fixed_engine(*values: int) -> Dnd5eEngine:
     rolls = iter(values)
     return Dnd5eEngine(roll_d20=lambda: next(rolls))
+
+
+@pytest.mark.asyncio
+async def test_command_and_tool_share_one_dnd5e_action() -> None:
+    calls: list[tuple[Dnd5eCheckRequest, ActionContext]] = []
+
+    class RecordingAction:
+        async def execute(self, request, context):
+            calls.append((request, context))
+            return ActionResult(
+                data={
+                    "ruleset": "dnd5e",
+                    "mode": request.mode.value,
+                    "rolls": [7, 16],
+                    "selected_roll": 16,
+                    "modifier": request.modifier,
+                    "total": 21,
+                },
+                authoritative_output=(
+                    "🎲 DND 5e 优势检定：[7, 16] → 16 + 5 = 21"
+                ),
+            )
+
+    action = RecordingAction()
+    commands = CommandRegistry()
+    register_dnd5e_commands(commands, action=action)
+    tools = ToolRegistry()
+    register_dnd5e_tools(tools, action=action)
+    tool_service = PortableToolService(tools)
+    command_context = ActionContext(
+        user_id="10001",
+        user_name="冒险者",
+        platform="qq",
+    )
+
+    command_result = await commands.dispatch(
+        ".dnd5e check adv +5",
+        command_context,
+    )
+    tool_result = await tool_service.execute_tool_call(
+        {
+            "name": "dnd5e_check",
+            "arguments": {"mode": "advantage", "modifier": 5},
+        },
+        user_id="10001",
+        user_name="冒险者",
+        platform="qq",
+    )
+
+    assert command_result is not None
+    assert command_result.content == tool_result["authoritative_output"]
+    assert calls == [
+        (
+            Dnd5eCheckRequest(mode=D20RollMode.ADVANTAGE, modifier=5),
+            command_context,
+        ),
+        (
+            Dnd5eCheckRequest(mode=D20RollMode.ADVANTAGE, modifier=5),
+            command_context,
+        ),
+    ]
 
 
 @pytest.mark.asyncio

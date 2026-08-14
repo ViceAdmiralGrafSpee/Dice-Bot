@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from src.chat.actions import ActionContext
 from src.chat.tools import (
     ToolDefinition,
     ToolExecutionContext,
@@ -12,15 +13,20 @@ from src.chat.tools import (
     ToolRegistry,
 )
 
+from .action import Dnd5eCheckAction, Dnd5eCheckRequest
 from .engine import D20RollMode, Dnd5eCheckError, Dnd5eEngine
 
 
-def create_dnd5e_check_tool(engine: Dnd5eEngine | None = None) -> ToolDefinition:
-    dnd5e_engine = engine or Dnd5eEngine()
+def create_dnd5e_check_tool(
+    engine: Dnd5eEngine | None = None,
+    *,
+    action: Dnd5eCheckAction | None = None,
+) -> ToolDefinition:
+    check_action = action or Dnd5eCheckAction(engine or Dnd5eEngine())
 
     async def dnd5e_check(
         arguments: Mapping[str, Any],
-        _context: ToolExecutionContext,
+        context: ToolExecutionContext,
     ) -> ToolOutcome:
         unexpected_arguments = set(arguments) - {"mode", "modifier"}
         if unexpected_arguments:
@@ -40,17 +46,17 @@ def create_dnd5e_check_tool(engine: Dnd5eEngine | None = None) -> ToolDefinition
         if not isinstance(modifier, int) or isinstance(modifier, bool):
             raise Dnd5eCheckError("modifier 必须是整数")
 
-        result = dnd5e_engine.check(modifier=modifier, mode=mode)
+        result = await check_action.execute(
+            Dnd5eCheckRequest(modifier=modifier, mode=mode),
+            ActionContext(
+                user_id=context.user_id,
+                user_name=context.user_name,
+                platform=context.platform,
+            ),
+        )
         return ToolOutcome(
-            data={
-                "ruleset": "dnd5e",
-                "mode": result.mode.value,
-                "rolls": list(result.rolls),
-                "selected_roll": result.selected_roll,
-                "modifier": result.modifier,
-                "total": result.total,
-            },
-            authoritative_output=result.format(),
+            data=result.data,
+            authoritative_output=result.authoritative_output,
         )
 
     return ToolDefinition(
@@ -86,5 +92,7 @@ def create_dnd5e_check_tool(engine: Dnd5eEngine | None = None) -> ToolDefinition
 def register_dnd5e_tools(
     registry: ToolRegistry,
     engine: Dnd5eEngine | None = None,
+    *,
+    action: Dnd5eCheckAction | None = None,
 ) -> None:
-    registry.register(create_dnd5e_check_tool(engine))
+    registry.register(create_dnd5e_check_tool(engine, action=action))

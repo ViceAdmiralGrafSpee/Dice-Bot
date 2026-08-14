@@ -11,6 +11,7 @@ from src.chat.commands import (
     CommandResult,
 )
 
+from .action import Dnd5eCheckAction, Dnd5eCheckRequest
 from .engine import D20RollMode, Dnd5eCheckError, Dnd5eEngine
 
 
@@ -29,10 +30,12 @@ _USAGE = (
 )
 
 
-def create_dnd5e_command_handler(engine: Dnd5eEngine) -> CommandHandler:
+def create_dnd5e_command_handler(
+    action: Dnd5eCheckAction,
+) -> CommandHandler:
     """Build the version-specific D&D 5e command handler."""
 
-    def handle_dnd5e(request: CommandRequest) -> CommandResult:
+    async def handle_dnd5e(request: CommandRequest) -> CommandResult:
         parts = request.arguments.split()
         if not parts or parts[0].lower() != "check":
             return CommandResult(_USAGE)
@@ -50,10 +53,16 @@ def create_dnd5e_command_handler(engine: Dnd5eEngine) -> CommandHandler:
             return CommandResult(_USAGE)
 
         try:
-            result = engine.check(modifier=int(modifier_text), mode=mode)
+            result = await action.execute(
+                Dnd5eCheckRequest(
+                    modifier=int(modifier_text),
+                    mode=mode,
+                ),
+                request.context,
+            )
         except Dnd5eCheckError as error:
             return CommandResult(f"DND 5e 检定有误：{error}")
-        return CommandResult(result.format())
+        return CommandResult(result.authoritative_output or "DND 5e 检定已完成")
 
     return handle_dnd5e
 
@@ -61,10 +70,14 @@ def create_dnd5e_command_handler(engine: Dnd5eEngine) -> CommandHandler:
 def register_dnd5e_commands(
     registry: CommandRegistry,
     engine: Dnd5eEngine | None = None,
+    *,
+    action: Dnd5eCheckAction | None = None,
 ) -> None:
     """Register only the explicit ``.dnd5e`` edition command."""
 
     registry.register(
         "dnd5e",
-        create_dnd5e_command_handler(engine or Dnd5eEngine()),
+        create_dnd5e_command_handler(
+            action or Dnd5eCheckAction(engine or Dnd5eEngine())
+        ),
     )

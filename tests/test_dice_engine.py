@@ -66,12 +66,15 @@ def test_rejects_invalid_or_unbounded_expressions(expression: str) -> None:
         DiceEngine().roll(expression)
 
 
-def test_command_boundary_distinguishes_dice_from_ordinary_text() -> None:
-    assert handle_dice_command(".r", DiceEngine()) == (
+@pytest.mark.asyncio
+async def test_command_boundary_distinguishes_dice_from_ordinary_text() -> None:
+    assert await handle_dice_command(".r", DiceEngine()) == (
         "骰子命令格式：.r 1d100 或 .r 2d6+3"
     )
-    assert handle_dice_command(".r 0d6", DiceEngine()).startswith("骰子命令有误")
-    assert handle_dice_command(".random chat", DiceEngine()) is None
+    assert (await handle_dice_command(".r 0d6", DiceEngine())).startswith(
+        "骰子命令有误"
+    )
+    assert await handle_dice_command(".random chat", DiceEngine()) is None
 
 
 @pytest.mark.parametrize(
@@ -81,12 +84,13 @@ def test_command_boundary_distinguishes_dice_from_ordinary_text() -> None:
         (".r 2d6+3", (4, 2), "🎲 2d6+3 = [4, 2] + 3 = 9"),
     ],
 )
-def test_registered_roll_command_preserves_existing_examples(
+@pytest.mark.asyncio
+async def test_registered_roll_command_preserves_existing_examples(
     text: str,
     rolls: tuple[int, ...],
     expected: str,
 ) -> None:
-    result = _dice_registry(*rolls).dispatch(text)
+    result = await _dice_registry(*rolls).dispatch(text)
 
     assert result is not None
     assert result.content == expected

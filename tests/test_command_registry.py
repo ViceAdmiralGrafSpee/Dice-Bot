@@ -14,12 +14,13 @@ class RecordingHandler:
         return CommandResult(f"received: {request.arguments}")
 
 
-def test_registers_and_dispatches_platform_independent_command() -> None:
+@pytest.mark.asyncio
+async def test_registers_and_dispatches_platform_independent_command() -> None:
     requests: list[CommandRequest] = []
     registry = CommandRegistry()
     registry.register("echo", RecordingHandler(requests), aliases=("say",))
 
-    result = registry.dispatch("  .SAY hello world  ")
+    result = await registry.dispatch("  .SAY hello world  ")
 
     assert result == CommandResult("received: hello world")
     assert requests == [
@@ -31,11 +32,26 @@ def test_registers_and_dispatches_platform_independent_command() -> None:
     ]
 
 
-def test_returns_none_for_non_command_and_unregistered_command() -> None:
+@pytest.mark.asyncio
+async def test_returns_none_for_non_command_and_unregistered_command() -> None:
     registry = CommandRegistry()
 
-    assert registry.dispatch("ordinary chat") is None
-    assert registry.dispatch(".unknown value") is None
+    assert await registry.dispatch("ordinary chat") is None
+    assert await registry.dispatch(".unknown value") is None
+
+
+@pytest.mark.asyncio
+async def test_awaits_async_command_handler() -> None:
+    registry = CommandRegistry()
+
+    async def handler(request: CommandRequest) -> CommandResult:
+        return CommandResult(f"async: {request.arguments}")
+
+    registry.register("wait", handler)
+
+    assert await registry.dispatch(".wait database") == CommandResult(
+        "async: database"
+    )
 
 
 def test_rejects_duplicate_command_or_alias() -> None:
