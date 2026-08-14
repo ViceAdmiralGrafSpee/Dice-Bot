@@ -448,3 +448,15 @@ GitHub 是主版本源，Gitee 仅是 GitHub → Gitee 的单向 Pull 部署镜�
 ```
 
 如果 GitHub 上还没有当前本地分支或最新 commit，另一台电脑无法取得这些工作。切换电脑前应先确认当前分支已经有意地 commit 并 push；不要用复制 `.env` 的方式同步秘密。
+
+## NapCat QQ 离线监控
+
+`feat/napcat-watchdog` 分支在 `feat/dnd5e-command-tools@53b45bf` 上增加了独立的 NapCat 在线状态监控，入口为：
+
+```bash
+python -m src.napcat_watchdog
+```
+
+它通过单独的短连接调用 NapCat OneBot `get_status`，不会与 `src.qq_bot` 共用接收消息的 WebSocket。默认每 60 秒检查一次，连续 3 次失败后通过 Server酱通知一次，恢复后通知一次；只报警，不执行自动重启或自动登录。通知去重状态保存在 `data/napcat-watchdog.json`，部署时必须继续保留 `data/`。
+
+完整配置、人工测试、systemd 安装与卸载步骤见仓库根目录的 `NAPCAT_WATCHDOG.md`。生产秘密 `SERVERCHAN_SENDKEY` 只能放在 `/home/ubuntu/apps/Dice-Bot/.env`；不得提交、打印或要求用户发送。systemd 示例位于 `deploy/systemd/napcat-watchdog.service`，监控进程应独立于 `dice-bot.service` 运行，这样聊天进程停止时仍能发出 NapCat/QQ 异常通知。
