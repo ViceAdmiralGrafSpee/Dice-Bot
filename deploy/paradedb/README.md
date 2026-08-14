@@ -20,7 +20,13 @@ DB_PORT=5432
 POSTGRES_DB=dice_bot
 POSTGRES_USER=dice_bot
 POSTGRES_PASSWORD=请在VPS上生成随机长密码
+POSTGRES_CAPABILITIES=profiles,conversation_memory
 ```
+
+`POSTGRES_CAPABILITIES` 是应用能力白名单，不影响 Alembic 建表。上述配置只启用 QQ
+档案和长期记忆路径；即使旧迁移建立了金币、好感度、记忆笔记和人格表，QQ runtime
+也不会调用这些功能。省略该变量时保留旧 Discord 部署的兼容行为，启用所有实际存在
+的能力；未知名称会按未启用处理。
 
 不要把上面的占位内容复制回仓库，也不要在终端截图或日志中显示真实密码。
 

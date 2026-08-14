@@ -105,10 +105,36 @@ _CAPABILITY_TABLES = {
 }
 
 
-def capabilities_from_table_names(table_names: set[str]) -> PostgresCapabilities:
+def parse_postgres_capability_allowlist(raw_value: str | None) -> set[str]:
+    """Parse the optional capability allowlist, preserving legacy defaults."""
+    all_capabilities = set(_CAPABILITY_TABLES)
+    if raw_value is None:
+        return all_capabilities
+
+    requested = {
+        item.strip().lower()
+        for item in raw_value.split(",")
+        if item.strip()
+    }
+    if "all" in requested:
+        return all_capabilities
+    if not requested or "none" in requested:
+        return set()
+    return requested & all_capabilities
+
+
+def capabilities_from_table_names(
+    table_names: set[str],
+    enabled_capabilities: set[str] | None = None,
+) -> PostgresCapabilities:
+    allowed = (
+        set(_CAPABILITY_TABLES)
+        if enabled_capabilities is None
+        else enabled_capabilities
+    )
     return PostgresCapabilities(
         **{
-            capability: table_name in table_names
+            capability: capability in allowed and table_name in table_names
             for capability, table_name in _CAPABILITY_TABLES.items()
         }
     )
@@ -131,11 +157,17 @@ async def detect_postgres_capabilities(
             row = (
                 await connection.execute(query, dict(_CAPABILITY_TABLES))
             ).mappings().one()
-            return PostgresCapabilities(
-                **{
-                    capability: bool(row[capability])
-                    for capability in _CAPABILITY_TABLES
-                }
+            present_tables = {
+                table_name
+                for capability, table_name in _CAPABILITY_TABLES.items()
+                if bool(row[capability])
+            }
+            enabled_capabilities = parse_postgres_capability_allowlist(
+                os.getenv("POSTGRES_CAPABILITIES")
+            )
+            return capabilities_from_table_names(
+                present_tables,
+                enabled_capabilities,
             )
 
     try:
