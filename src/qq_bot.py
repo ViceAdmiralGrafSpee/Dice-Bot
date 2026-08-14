@@ -203,7 +203,8 @@ async def initialize_qq_chat_core(
     from src.chat.services.ai.service import ai_service
     from src.chat.services.chat_service import chat_service
     from src.chat.utils.database import chat_db_manager
-    from src.database.database import optional_chat_database_is_ready
+    from src.database.database import detect_postgres_capabilities
+
     await chat_db_manager.init_async()
     await world_book_db_manager.init_async()
 
@@ -216,12 +217,11 @@ async def initialize_qq_chat_core(
         tool_service,
     )
 
-    postgres_ready = await optional_chat_database_is_ready()
-    chat_service.set_optional_postgres_enabled(postgres_ready)
-    if postgres_ready:
-        await ai_service.initialize()
-    else:
-        await ai_service.initialize_without_database()
+    postgres_capabilities = await detect_postgres_capabilities()
+    chat_service.set_postgres_capabilities(postgres_capabilities)
+    # QQ selects its chat provider from the private environment. Long-term
+    # memory must not require the unrelated PostgreSQL AI configuration tables.
+    await ai_service.initialize_without_database()
 
     model_name, provider_name = ai_service.parse_model_id(settings.ai_model)
     if ai_service.get_provider_for_model(model_name, provider_name) is None:

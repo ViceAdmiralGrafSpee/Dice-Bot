@@ -144,8 +144,8 @@ async def test_qq_runtime_uses_environment_ai_when_postgres_is_absent(
     monkeypatch.setattr(world_book_db_manager, "init_async", AsyncMock())
     monkeypatch.setattr(
         database_module,
-        "optional_chat_database_is_ready",
-        AsyncMock(return_value=False),
+        "detect_postgres_capabilities",
+        AsyncMock(return_value=database_module.PostgresCapabilities()),
     )
     monkeypatch.setattr(ai_service, "set_tools", lambda *_args: None)
     monkeypatch.setattr(chat_service, "_optional_postgres_enabled", True)

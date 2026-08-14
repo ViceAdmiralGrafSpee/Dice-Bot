@@ -30,6 +30,7 @@ from src.chat.services.ai.providers.provider_format import ProviderFormat, Messa
 from src.chat.services.persona_preference_service import persona_preference_service
 from src.database.identity import platform_user_identity
 from src.database.services.member_profile_service import member_profile_service
+from src.database.database import PostgresCapabilities
 
 log = logging.getLogger(__name__)
 
@@ -58,11 +59,22 @@ class ChatService:
         # Discord deployments historically require PostgreSQL. Lightweight
         # adapters can explicitly disable these optional legacy features.
         self._optional_postgres_enabled = True
+        self._postgres_capabilities = PostgresCapabilities.full()
 
     def set_optional_postgres_enabled(self, enabled: bool) -> None:
+        """Compatibility shim for legacy entry points."""
+
         self._optional_postgres_enabled = enabled
+        self._postgres_capabilities = (
+            PostgresCapabilities.full() if enabled else PostgresCapabilities()
+        )
         if not enabled:
             log.info("未检测到完整 PostgreSQL 数据库；已跳过档案、记忆、好感度和币功能。")
+
+    def set_postgres_capabilities(self, capabilities: PostgresCapabilities) -> None:
+        self._postgres_capabilities = capabilities
+        self._optional_postgres_enabled = capabilities.all_legacy_features
+        log.info("PostgreSQL chat capabilities: %s", capabilities)
 
     async def _load_optional_user_context(
         self,
@@ -73,26 +85,48 @@ class ChatService:
     ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], str]:
         """Load PostgreSQL-backed context, or use neutral chat defaults."""
 
-        if not self._optional_postgres_enabled:
+        capabilities = self._postgres_capabilities
+        if not capabilities.any_enabled:
             return None, None, "default"
 
-        try:
-            identity = platform_user_identity(platform, user_id)
-            await member_profile_service.ensure_minimal_profile(identity, user_name)
-            profile = await world_book_service.get_profile_by_user_id(
-                identity.database_key
-            )
-            affection = await affection_service.get_affection_status(numeric_user_id)
-            persona = await persona_preference_service.get_persona_style(
-                identity.database_key
-            )
-            return profile, affection, persona
-        except Exception as error:
-            log.warning(
-                "PostgreSQL 用户功能暂时不可用，本条消息使用默认上下文：%s",
-                error,
-            )
-            return None, None, "default"
+        identity = platform_user_identity(platform, user_id)
+        profile = None
+        affection = None
+        persona = "default"
+
+        if capabilities.profiles:
+            try:
+                persisted = await member_profile_service.ensure_minimal_profile(
+                    identity, user_name
+                )
+                profile = await world_book_service.get_profile_by_user_id(
+                    identity.database_key
+                )
+                if profile is None:
+                    profile = {
+                        "user_id": identity.database_key,
+                        "title": persisted.title,
+                        "personal_summary": persisted.personal_summary,
+                        "source_metadata": persisted.source_metadata,
+                    }
+            except Exception as error:
+                log.warning("PostgreSQL profile capability is unavailable: %s", error)
+
+        if capabilities.affection:
+            try:
+                affection = await affection_service.get_affection_status(numeric_user_id)
+            except Exception as error:
+                log.warning("PostgreSQL affection capability is unavailable: %s", error)
+
+        if capabilities.persona:
+            try:
+                persona = await persona_preference_service.get_persona_style(
+                    identity.database_key
+                )
+            except Exception as error:
+                log.warning("PostgreSQL persona capability is unavailable: %s", error)
+
+        return profile, affection, persona
 
     async def should_process_message(
         self, request: PlatformRequestContext
@@ -117,7 +151,7 @@ class ChatService:
             # 检查是否满足通行许可的例外条件
             pass_is_granted = False
             thread = message.conversation.thread
-            if self._optional_postgres_enabled and thread and thread.owner_id:
+            if self._postgres_capabilities.coins and thread and thread.owner_id:
                 # 修正逻辑：只有当帖主明确设置了个人CD时，才算拥有"通行许可"
                 owner_id = int(thread.owner_id)
                 owner_config = await coin_service.get_thread_cooldown_settings(owner_id)
@@ -234,14 +268,14 @@ class ChatService:
                 rag_query = f"{replied_content}\n{user_content}"
 
             # 确保对话块在工具检索前创建（副作用必须保留）
-            if user_profile_data:
+            if user_profile_data and self._postgres_capabilities.long_term_memory:
                 await personal_memory_service.check_and_create_block_before_reply(
                     user_id=memory_user_id
                 )
 
             # 获取记忆笔记（仅对有名片用户）
             memory_notes_text = None
-            if user_profile_data:
+            if user_profile_data and self._postgres_capabilities.memory_notes:
                 try:
                     memory_notes_text = await user_memory_note_service.get_notes_for_context(
                         memory_user_id
@@ -251,7 +285,7 @@ class ChatService:
 
             # 获取最近聊天历史（仅对有名片用户，1-10条递增）
             recent_chat_history = None
-            if user_profile_data:
+            if user_profile_data and self._postgres_capabilities.long_term_memory:
                 try:
                     recent_chat_history = await personal_memory_service.get_recent_chat_history(
                         memory_user_id, limit=10
@@ -260,7 +294,7 @@ class ChatService:
                     log.error(f"获取用户 {user_id} 最近聊天历史失败: {hist_e}")
 
             # 3. --- 好感度与奖励更新（前置） ---
-            if self._optional_postgres_enabled:
+            if self._postgres_capabilities.affection:
                 try:
                     # 在生成回复前更新好感度，以确保日志顺序正确
                     await affection_service.increase_affection_on_message(
@@ -269,6 +303,7 @@ class ChatService:
                 except Exception as aff_e:
                     log.error(f"增加用户 {user_id} 的好感度时出错: {aff_e}")
 
+            if self._postgres_capabilities.coins:
                 try:
                     # 发放每日首次对话奖励
                     if await coin_service.grant_daily_message_reward(numeric_user_id):
@@ -523,7 +558,11 @@ class ChatService:
             # --- 新增：调用新的个人记忆服务 ---
             # 在获得AI回复后，记录这次对话并根据需要触发总结
             # 传递 current_model 使总结逻辑跟随主模型
-            if user_profile_data and ai_response:
+            if (
+                user_profile_data
+                and ai_response
+                and self._postgres_capabilities.long_term_memory
+            ):
                 try:
                     await personal_memory_service.update_and_conditionally_summarize_memory(
                         user_id=memory_user_id,

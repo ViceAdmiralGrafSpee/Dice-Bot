@@ -1,7 +1,9 @@
 import os
 import asyncio
 import logging
+from dataclasses import dataclass
 from sqlalchemy import text
+from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from dotenv import load_dotenv
 
@@ -31,8 +33,13 @@ if not DATABASE_URL:
         db_host = os.getenv("DB_HOST", "localhost")
         log.info("Running on host machine, connecting to '%s'.", db_host)
 
-    DATABASE_URL = (
-        f"postgresql+asyncpg://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+    DATABASE_URL = URL.create(
+        "postgresql+asyncpg",
+        username=db_user,
+        password=db_password,
+        host=db_host,
+        port=int(db_port),
+        database=db_name,
     )
 
 engine = create_async_engine(DATABASE_URL, echo=False)
@@ -44,14 +51,103 @@ async def get_db():
         yield session
 
 
-_OPTIONAL_CHAT_TABLES = (
-    "community.member_profiles",
-    "conversation.conversation_blocks",
-    "economy.user_coins",
-    "user.user_affection",
-    "user.user_memory_notes",
-    "user.user_persona_preference",
-)
+@dataclass(frozen=True, slots=True)
+class PostgresCapabilities:
+    profiles: bool = False
+    conversation_memory: bool = False
+    coins: bool = False
+    affection: bool = False
+    memory_notes: bool = False
+    persona: bool = False
+
+    @property
+    def long_term_memory(self) -> bool:
+        return self.profiles and self.conversation_memory
+
+    @property
+    def any_enabled(self) -> bool:
+        return any(
+            (
+                self.profiles,
+                self.conversation_memory,
+                self.coins,
+                self.affection,
+                self.memory_notes,
+                self.persona,
+            )
+        )
+
+    @property
+    def all_legacy_features(self) -> bool:
+        return all(
+            (
+                self.profiles,
+                self.conversation_memory,
+                self.coins,
+                self.affection,
+                self.memory_notes,
+                self.persona,
+            )
+        )
+
+    @classmethod
+    def full(cls) -> "PostgresCapabilities":
+        return cls(True, True, True, True, True, True)
+
+
+_CAPABILITY_TABLES = {
+    "profiles": "community.member_profiles",
+    "conversation_memory": "conversation.conversation_blocks",
+    "coins": "economy.user_coins",
+    "affection": "user.user_affection",
+    "memory_notes": "user.user_memory_notes",
+    "persona": "user.user_persona_preference",
+}
+
+
+def capabilities_from_table_names(table_names: set[str]) -> PostgresCapabilities:
+    return PostgresCapabilities(
+        **{
+            capability: table_name in table_names
+            for capability, table_name in _CAPABILITY_TABLES.items()
+        }
+    )
+
+
+async def detect_postgres_capabilities(
+    timeout_seconds: float = 2.0,
+) -> PostgresCapabilities:
+    """Probe each optional PostgreSQL capability independently."""
+
+    async def _check() -> PostgresCapabilities:
+        query = text(
+            "SELECT "
+            + ", ".join(
+                f"to_regclass(:{capability}) IS NOT NULL AS {capability}"
+                for capability in _CAPABILITY_TABLES
+            )
+        )
+        async with engine.connect() as connection:
+            row = (
+                await connection.execute(query, dict(_CAPABILITY_TABLES))
+            ).mappings().one()
+            return PostgresCapabilities(
+                **{
+                    capability: bool(row[capability])
+                    for capability in _CAPABILITY_TABLES
+                }
+            )
+
+    try:
+        return await asyncio.wait_for(_check(), timeout=timeout_seconds)
+    except asyncio.CancelledError:
+        raise
+    except TimeoutError:
+        log.info("Optional PostgreSQL capability check timed out.")
+        return PostgresCapabilities()
+    except Exception as error:
+        log.info("Optional PostgreSQL capabilities are unavailable: %s", error)
+        return PostgresCapabilities()
 
 
 async def optional_chat_database_is_ready(timeout_seconds: float = 2.0) -> bool:
@@ -62,25 +158,5 @@ async def optional_chat_database_is_ready(timeout_seconds: float = 2.0) -> bool:
     new or partially migrated database from breaking every incoming message.
     """
 
-    async def _check() -> bool:
-        query = text(
-            "SELECT "
-            + ", ".join(
-                f"to_regclass('{table_name}') IS NOT NULL AS table_{index}"
-                for index, table_name in enumerate(_OPTIONAL_CHAT_TABLES)
-            )
-        )
-        async with engine.connect() as connection:
-            row = (await connection.execute(query)).one()
-            return all(bool(value) for value in row)
-
-    try:
-        return await asyncio.wait_for(_check(), timeout=timeout_seconds)
-    except asyncio.CancelledError:
-        raise
-    except TimeoutError:
-        log.info("可选 PostgreSQL 聊天功能未启用：连接检查超时。")
-        return False
-    except Exception as error:
-        log.info("可选 PostgreSQL 聊天功能未启用：%s", error)
-        return False
+    capabilities = await detect_postgres_capabilities(timeout_seconds)
+    return capabilities.all_legacy_features
