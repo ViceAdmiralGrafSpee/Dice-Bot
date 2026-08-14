@@ -1,0 +1,29 @@
+name: dice-bot-database
+
+services:
+  db:
+    # Keep the ParadeDB and PostgreSQL versions immutable. Before changing this
+    # digest, run verify_fresh_migrations.py against the replacement image.
+    image: paradedb/paradedb:v0.25.2-pg16@sha256:d083e64e1af2bfcddee20851aed1492173a4c66e068eea710bdbb21392bbf59e
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - paradedb_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    stop_grace_period: 60s
+
+volumes:
+  paradedb_data:
+    name: dice-bot-paradedb-data
