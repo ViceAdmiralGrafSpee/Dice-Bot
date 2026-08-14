@@ -43,3 +43,40 @@ def test_private_settings_rejects_non_loopback_database(verifier, tmp_path) -> N
 
     with pytest.raises(verifier["VerificationError"], match="must be loopback"):
         verifier["_private_settings"](env_file)
+
+
+def test_create_database_enables_autocommit_before_execute(
+    verifier, monkeypatch
+) -> None:
+    events: list[str] = []
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, _statement, _parameters=None):
+            assert connection.autocommit is True
+            events.append("execute")
+
+    class FakeConnection:
+        autocommit = False
+
+        def cursor(self):
+            return FakeCursor()
+
+        def close(self):
+            events.append("close")
+
+    connection = FakeConnection()
+    monkeypatch.setitem(
+        verifier["_create_database"].__globals__,
+        "_connect",
+        lambda _settings, _database: connection,
+    )
+
+    verifier["_create_database"]({}, "dice_bot_migration_test_deadbeef")
+
+    assert events == ["execute", "close"]

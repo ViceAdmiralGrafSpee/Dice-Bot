@@ -102,14 +102,18 @@ def _connect(settings: Mapping[str, str], database: str):
 
 
 def _create_database(settings: Mapping[str, str], database: str) -> None:
-    with _connect(settings, "postgres") as connection:
+    connection = _connect(settings, "postgres")
+    try:
         connection.autocommit = True
         with connection.cursor() as cursor:
             cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+    finally:
+        connection.close()
 
 
 def _drop_database(settings: Mapping[str, str], database: str) -> None:
-    with _connect(settings, "postgres") as connection:
+    connection = _connect(settings, "postgres")
+    try:
         connection.autocommit = True
         with connection.cursor() as cursor:
             cursor.execute(
@@ -123,6 +127,8 @@ def _drop_database(settings: Mapping[str, str], database: str) -> None:
             cursor.execute(
                 sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(database))
             )
+    finally:
+        connection.close()
 
 
 def _run_alembic(source_dir: Path, settings: Mapping[str, str], database: str) -> None:
