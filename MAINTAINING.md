@@ -244,10 +244,10 @@ NapCat 是 QQ 收发层，`src.qq_bot` 是机器人聊天、记忆和规则工�
 运行当前确认不依赖 PostgreSQL 的 QQ、平台、命令、骰子和 DND5e 回归测试：
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q tests/test_platform_models.py tests/test_platform_chat_boundary.py tests/test_discord_message_mapper.py tests/test_discord_request_context.py tests/test_message_processor_fakenitro.py tests/test_onebot_event_mapper.py tests/test_onebot_transport.py tests/test_onebot_chat_gateway.py tests/test_qq_bot_entrypoint.py tests/test_optional_postgres_chat.py tests/test_sqlite_conversation_memory.py tests/test_command_registry.py tests/test_rule_system_registry.py tests/test_dice_engine.py tests/test_dice_tool_calling.py tests/test_dnd5e_rules.py tests/test_dnd5e_tool_calling.py tests/test_trpg_repository.py tests/test_dnd5e_character_import.py
+.\.venv\Scripts\python.exe -m pytest -q tests/test_command_registry.py tests/test_dice_engine.py tests/test_dnd5e_rules.py tests/test_dnd5e_tool_calling.py tests/test_rule_system_registry.py tests/test_trpg_repository.py tests/test_character_draft_workflow.py tests/test_dnd5e_character_import.py tests/test_dnd5r_xlsx_import.py tests/test_onebot_event_mapper.py tests/test_onebot_file_transfer.py tests/test_dnd5r_qq_character_commands.py tests/test_sqlite_conversation_memory.py tests/test_qq_bot_entrypoint.py tests/test_platform_models.py
 ```
 
-在 `8071e02` 基础上完成本地异步 Action、TRPG SQLite 数据层和 DND5e Character 导入 Service 后，上述轻量回归结果为 **107 passed**。如果 Windows 测试环境拒绝使用系统临时目录，可在仓库内临时指定：
+发布 `f3f4c59` 前，上述不依赖 PostgreSQL 的针对性回归结果为 **97 passed**。如果 Windows 测试环境拒绝使用系统临时目录，可在仓库内临时指定：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/test_dice_engine.py -q --basetemp=.local-test-temp
@@ -276,6 +276,10 @@ NapCat 是 QQ 收发层，`src.qq_bot` 是机器人聊天、记忆和规则工�
 截至本次核对，GitHub 最新开发分支为 `feat/dnd5e-command-tools`，已推送提交为：
 
 ```text
+f3f4c59 chore: ignore codex test temp
+26ddb08 feat: import dnd5r sheets from qq
+6f458ee feat: add dnd5r xlsx draft import
+3d3debf feat: add shared trpg action and persistence layer
 8071e02 feat: wire dnd5e into qq runtime
 999900d feat: add dnd5e rule plugin
 eee7695 feat: add portable command registry
@@ -432,7 +436,7 @@ QQ 文件流程是：NapCat 文件事件 → 平台无关 `MessageFile` → 受�
 
 ```text
 请先完整阅读 MAINTAINING.md 和 docs/NAPCAT_LOCAL_TEST.md，然后检查当前分支、git status、origin、upstream 和最近三个提交。
-不要根据本段记录硬猜最新分支；先 fetch 并核对 GitHub 远端。截至 2026-08-14，已确认的最新开发基线是 origin/feat/dnd5e-command-tools@8071e02。
+不要根据本段记录硬猜最新分支；先 fetch 并核对 GitHub 远端。截至 2026-08-14，已确认的最新开发基线是 origin/feat/dnd5e-command-tools@f3f4c59。
 不要从旧 main 或 feature/onebot-adapter 直接开发，不要 rebase 或 force push。
 不要读取、显示或提交 .env 和 data 目录中的真实数据。
 修改前先说明范围，一个 commit 只完成一个容易解释的目标，完成后运行相关回归测试。
