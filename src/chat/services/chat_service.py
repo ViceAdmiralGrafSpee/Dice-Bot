@@ -28,6 +28,8 @@ from src.chat.features.chat_settings.services.chat_settings_service import (
 from src.chat.services.ai.providers.base import GenerationConfig
 from src.chat.services.ai.providers.provider_format import ProviderFormat, MessageFormat
 from src.chat.services.persona_preference_service import persona_preference_service
+from src.database.identity import platform_user_identity
+from src.database.services.member_profile_service import member_profile_service
 
 log = logging.getLogger(__name__)
 
@@ -64,7 +66,9 @@ class ChatService:
 
     async def _load_optional_user_context(
         self,
-        user_id: str | int,
+        platform: str,
+        user_id: str,
+        user_name: str,
         numeric_user_id: int,
     ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], str]:
         """Load PostgreSQL-backed context, or use neutral chat defaults."""
@@ -73,9 +77,15 @@ class ChatService:
             return None, None, "default"
 
         try:
-            profile = await world_book_service.get_profile_by_user_id(user_id)
+            identity = platform_user_identity(platform, user_id)
+            await member_profile_service.ensure_minimal_profile(identity, user_name)
+            profile = await world_book_service.get_profile_by_user_id(
+                identity.database_key
+            )
             affection = await affection_service.get_affection_status(numeric_user_id)
-            persona = await persona_preference_service.get_persona_style(str(user_id))
+            persona = await persona_preference_service.get_persona_style(
+                identity.database_key
+            )
             return profile, affection, persona
         except Exception as error:
             log.warning(
@@ -166,6 +176,9 @@ class ChatService:
         """
         message = request.message
         user_id = message.user_id
+        memory_user_id = platform_user_identity(
+            message.platform, message.user_id
+        ).database_key
         numeric_user_id = int(user_id)
         user_name = message.user_name
         guild_name = message.conversation.space_name or "私信"
@@ -187,7 +200,12 @@ class ChatService:
             user_profile_data,
             affection_status,
             persona_style,
-        ) = await self._load_optional_user_context(user_id, numeric_user_id)
+        ) = await self._load_optional_user_context(
+            message.platform,
+            user_id,
+            user_name,
+            numeric_user_id,
+        )
 
         user_content = message.text
         replied_content = (
@@ -218,7 +236,7 @@ class ChatService:
             # 确保对话块在工具检索前创建（副作用必须保留）
             if user_profile_data:
                 await personal_memory_service.check_and_create_block_before_reply(
-                    user_id=user_id
+                    user_id=memory_user_id
                 )
 
             # 获取记忆笔记（仅对有名片用户）
@@ -226,7 +244,7 @@ class ChatService:
             if user_profile_data:
                 try:
                     memory_notes_text = await user_memory_note_service.get_notes_for_context(
-                        str(user_id)
+                        memory_user_id
                     )
                 except Exception as mem_note_e:
                     log.error(f"获取用户 {user_id} 记忆笔记失败: {mem_note_e}")
@@ -236,7 +254,7 @@ class ChatService:
             if user_profile_data:
                 try:
                     recent_chat_history = await personal_memory_service.get_recent_chat_history(
-                        user_id, limit=10
+                        memory_user_id, limit=10
                     )
                 except Exception as hist_e:
                     log.error(f"获取用户 {user_id} 最近聊天历史失败: {hist_e}")
@@ -508,7 +526,7 @@ class ChatService:
             if user_profile_data and ai_response:
                 try:
                     await personal_memory_service.update_and_conditionally_summarize_memory(
-                        user_id=user_id,
+                        user_id=memory_user_id,
                         user_name=user_name,
                         user_content=user_content,
                         ai_response=ai_response,
