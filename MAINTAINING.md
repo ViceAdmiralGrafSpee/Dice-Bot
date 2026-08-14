@@ -315,6 +315,7 @@ eee7695 feat: add portable command registry
 - 已建立 `CharacterServiceRegistry`，在写数据库前按 `ruleset_key` 选择规则专用 Character Service。
 - 已建立共享 `ImportCharacterAction` 和首个 `Dnd5eCharacterService`；当前支持内部标准格式 `dice_bot_json_v1`，最小校验角色名、2014 版标识和可选的 1–20 级等级。
 - DND5r XLSX 草稿流程已接入 QQ：同一用户在同一会话上传文件后可使用 `.pc import`，再以 `.pc preview <草稿ID>` 查看，并用精确口令 `确认 <草稿ID>` 入库。
+- 正式角色卡可用 `.pc list` 按 QQ 身份列出；`.pc delete <角色ID>` 只生成删除预览，只有同一所有者继续发送精确口令 `确认删除 <角色ID>` 才会将角色归档。
 - 腾讯云 Ubuntu VPS 已通过 `dice-bot.service` 生产运行，并设置开机启动和自动重启。
 - GitHub 主仓库到 Gitee 的单向 Pull 镜像已建立。
 
@@ -325,7 +326,7 @@ eee7695 feat: add portable command registry
 - DND5e 2014 角色卡的 QQ 导入入口；当前 QQ XLSX 入口只面向独立的 DND5r / 2024 规则服务。
 - 可持久化、可中断恢复的 Workflow / Session 多轮任务层。
 - “自然语言启动并完成一张 DND5e 角色卡创建”的端到端 Agent 场景。
-- `.pc` 的查询、修改、切换当前角色等日常管理命令，以及 `.st` 等传统角色卡命令；目前 `.pc` 只包含 XLSX 草稿导入、预览和确认。
+- `.pc` 的详情查询、修改、切换当前角色、恢复归档角色等日常管理命令，以及 `.st` 等传统角色卡命令；当前已有导入、预览、确认、列表和安全删除。
 - COC、完整 DND5e 角色规则、WINNING GIRLS 等系统插件。
 - QQ 规则资料 RAG / `search_rules` Tool；实际资料应只放本地或 VPS，不进入公开仓库。
 - QQ 图片下载和多模态理解。
@@ -365,8 +366,20 @@ DeepSeek 特有的 `reasoning_content`、Tool Calling 协议差异或未来模�
 2. `Character` 是独立角色本体，不直接从属于某一个 Campaign。
 3. `CampaignCharacter` 是角色与团之间的多对多参团记录；同一角色可以加入多个 Campaign，并分别保存本团别名和 `state_data`，避免把不同团的 HP 等临时状态互相覆盖。
 4. `sheet_data` 和 `state_data` 均带版本号并以 JSON 保存，具体字段以后由 DND5e、COC、WINNING GIRLS 等规则插件校验，LLM 不得直接写数据库。
-5. Repository 提供创建、读取、建立参团关系、双向列出关系，以及角色导入草稿的持久化和原子确认；没有硬删除。
+5. Repository 提供创建、读取、按所有者列出、建立参团关系、双向列出关系，以及角色导入草稿的持久化和原子确认；没有硬删除。用户删除采用 `status=archived`，保留角色数据、导入来源和参团历史。
 6. 数据库当前为 schema v2，重复初始化不会清空数据；加入团时会拒绝规则系统不一致的角色。
+
+#### 使用 DBeaver 查看 TRPG 数据
+
+`data/trpg.sqlite3` 是标准 SQLite 文件，可以用 DBeaver 的 SQLite 连接打开。主要表的职责是：
+
+- `characters`：一行一张正式角色卡；姓名、规则和所有者是普通列，完整卡数据位于 `sheet_data_json`。
+- `character_import_drafts`：导入草稿、来源快照、映射和确认后的角色 ID。
+- `campaigns`：团级记录。
+- `campaign_characters`：角色与团的多对多关系，以及每个团独立的 `state_data_json`。
+- `trpg_schema_migrations`：数据库结构版本，禁止手工改写。
+
+DBeaver 适合只读检查、备份副本分析和受控的紧急修复。不要在机器人运行时直接编辑 VPS 上的正式 SQLite 文件；不要随意修改主键、所有者、迁移版本和关联字段。手工编辑 JSON 时必须保持合法 JSON，但即使格式合法也可能绕过对应规则系统的校验。日常维护优先使用 Bot 的 Command / Action / Service；必须人工修复时，先停止相关服务并备份整个 `data/trpg.sqlite3`。
 
 Character 导入采用两级边界：Action 先交给 `CharacterServiceRegistry` 按规则系统分流，再由对应规则的 Character Service 校验和调用 Repository。DND5r 的 QQ XLSX 入口已经复用草稿 Action；DND5e 2014 暂无外部文件入口，不应将两个规则版本混用。
 
@@ -407,11 +420,12 @@ QQ 文件流程是：NapCat 文件事件 → 平台无关 `MessageFile` → 受�
 - `src/chat/rules/dnd5r/character_schema.py`：DND5r / 2024 最小 Character Schema；与 2014 Schema 分离。
 - `src/chat/rules/dnd5r/character_service.py`：确认后的 DND5r 二次校验和正式角色入库服务。
 - `src/chat/rules/dnd5r/xlsx_importer.py`：将已识别 XLSX 确定性映射为待确认 CharacterDraft，不写数据库。
-- `src/chat/rules/dnd5r/character_commands.py`：QQ 可用的 `.pc import`、草稿预览和精确确认路由，只调用共享 Action。
+- `src/chat/rules/dnd5r/character_commands.py`：QQ 可用的 `.pc import`、草稿预览、角色列表、安全删除和精确确认路由，只调用共享 Action。
 - `src/chat/tools/runtime.py`：通用工具注册、Provider 格式转换和执行边界；COC/DND 工具应复用这里。
 - `src/trpg/importing/`：规则无关的 SourceSnapshot、WorkbookInspection、TemplateProfile、CharacterDraft、来源链、序列化、预览和确认服务。
 - `src/trpg/models.py`：规则无关的 Campaign、Character 和多对多参团记录模型。
-- `src/trpg/repository.py`：独立 TRPG SQLite 初始化、角色/团数据、草稿持久化和原子确认。
+- `src/trpg/repository.py`：独立 TRPG SQLite 初始化、角色/团数据、按所有者列出与归档、草稿持久化和原子确认。
+- `src/trpg/characters/management.py`：规则无关的角色所有权、列表和归档生命周期服务。
 - `src/trpg/characters/runtime.py`：按规则系统分流 Character Service 的注册表和导入数据边界。
 - `src/chat/platform/onebot/persistent_chat.py`：先记录 QQ 消息，再优先分发传统命令，未匹配且被 @ 时进入聊天核心。
 - `docs/NAPCAT_LOCAL_TEST.md`：本地 NapCat、正式 QQ 入口、记忆和骰子测试说明。

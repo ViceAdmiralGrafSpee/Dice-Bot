@@ -189,3 +189,94 @@ async def test_repeated_initialize_does_not_erase_data(tmp_path) -> None:
     await repository.initialize()
 
     assert await repository.get_campaign(campaign.campaign_id) == campaign
+
+
+@pytest.mark.asyncio
+async def test_owner_can_archive_character_without_erasing_links(tmp_path) -> None:
+    repository = SQLiteTrpgRepository(tmp_path / "trpg.sqlite3")
+    await repository.initialize()
+    campaign = await _create_campaign(
+        repository,
+        campaign_id="campaign-archive",
+        name="保留历史的团",
+    )
+    character = await repository.create_character(
+        character_id="character-archive",
+        owner_platform="qq",
+        owner_user_id="20002",
+        owner_name="玩家甲",
+        name="艾琳",
+        ruleset_key="dnd5e",
+        sheet_data={"level": 3},
+    )
+    await repository.add_character_to_campaign(
+        campaign_id=campaign.campaign_id,
+        character_id=character.character_id,
+        state_data={"hp": 12},
+    )
+
+    assert [
+        item.character_id
+        for item in await repository.list_characters_for_owner(
+            owner_platform="qq",
+            owner_user_id="20002",
+        )
+    ] == ["character-archive"]
+    assert (
+        await repository.archive_character_for_owner(
+            character_id=character.character_id,
+            owner_platform="qq",
+            owner_user_id="someone-else",
+        )
+        is None
+    )
+
+    archived = await repository.archive_character_for_owner(
+        character_id=character.character_id,
+        owner_platform="qq",
+        owner_user_id="20002",
+    )
+
+    assert archived is not None
+    assert archived.status == "archived"
+    assert archived.sheet_data == {"level": 3}
+    assert await repository.list_characters_for_owner(
+        owner_platform="qq",
+        owner_user_id="20002",
+    ) == []
+    membership = await repository.get_campaign_character(
+        campaign.campaign_id,
+        character.character_id,
+    )
+    assert membership is not None
+    assert membership.state_data == {"hp": 12}
+
+
+@pytest.mark.asyncio
+async def test_archived_character_cannot_join_another_campaign(tmp_path) -> None:
+    repository = SQLiteTrpgRepository(tmp_path / "trpg.sqlite3")
+    await repository.initialize()
+    campaign = await _create_campaign(
+        repository,
+        campaign_id="new-campaign",
+        name="新团",
+    )
+    character = await repository.create_character(
+        character_id="archived-character",
+        owner_platform="qq",
+        owner_user_id="20002",
+        owner_name="玩家甲",
+        name="艾琳",
+        ruleset_key="dnd5e",
+    )
+    await repository.archive_character_for_owner(
+        character_id=character.character_id,
+        owner_platform="qq",
+        owner_user_id="20002",
+    )
+
+    with pytest.raises(ValueError, match="已归档"):
+        await repository.add_character_to_campaign(
+            campaign_id=campaign.campaign_id,
+            character_id=character.character_id,
+        )

@@ -19,7 +19,10 @@ from src.chat.rules.dnd5r import (
 )
 from src.chat.memory import SQLiteConversationRepository
 from src.trpg import SQLiteTrpgRepository
-from src.trpg.characters import CharacterServiceRegistry
+from src.trpg.characters import (
+    CharacterManagementService,
+    CharacterServiceRegistry,
+)
 from src.trpg.importing import CharacterDraft, DraftField, SourceSnapshot
 from src.trpg.importing.service import CharacterDraftService
 
@@ -71,6 +74,7 @@ async def _draft_service(tmp_path) -> tuple[SQLiteTrpgRepository, CharacterDraft
 @pytest.mark.asyncio
 async def test_pc_import_preview_and_confirmation_use_shared_actions(tmp_path) -> None:
     repository, service = await _draft_service(tmp_path)
+    management_service = CharacterManagementService(repository)
 
     class FakeImporter:
         def inspect_and_create_draft(self, path):
@@ -78,7 +82,11 @@ async def test_pc_import_preview_and_confirmation_use_shared_actions(tmp_path) -
             return _draft()
 
     registry = CommandRegistry()
-    register_dnd5r_character_commands(registry, service)
+    register_dnd5r_character_commands(
+        registry,
+        service,
+        character_management_service=management_service,
+    )
     handler = registry._handlers["pc"]
     handler.importer = FakeImporter()
     provider = SimpleNamespace(read=AsyncMock(return_value=b"fake-xlsx"))
@@ -101,7 +109,10 @@ async def test_pc_import_preview_and_confirmation_use_shared_actions(tmp_path) -
     assert preview is not None
     assert "角色名：阿莉娅" in preview.content
 
-    confirmation_router = create_dnd5r_confirmation_router(service)
+    confirmation_router = create_dnd5r_confirmation_router(
+        service,
+        management_service,
+    )
     confirmed = await confirmation_router(f"确认 {draft_id}", context)
 
     assert confirmed is not None
@@ -113,6 +124,44 @@ async def test_pc_import_preview_and_confirmation_use_shared_actions(tmp_path) -
     )
     assert character is not None
     assert character.sheet_data["import_provenance"]["draft_id"] == draft_id
+
+    listed = await registry.dispatch(".pc list", context)
+    assert listed is not None
+    assert f"阿莉娅｜dnd5r｜ID：{character.character_id}" in listed.content
+
+    prepared = await registry.dispatch(
+        f".pc delete {character.character_id}",
+        context,
+    )
+    assert prepared is not None
+    assert f"确认删除 {character.character_id}" in prepared.content
+    assert (await repository.get_character(character.character_id)).status == "active"
+
+    other_user_context = ActionContext(
+        platform="qq",
+        user_id="another-user",
+        user_name="其他玩家",
+    )
+    rejected = await confirmation_router(
+        f"确认删除 {character.character_id}",
+        other_user_context,
+    )
+    assert rejected is not None
+    assert "找不到属于你的角色卡" in rejected.content
+    assert (await repository.get_character(character.character_id)).status == "active"
+
+    deleted = await confirmation_router(
+        f"确认删除 {character.character_id}",
+        context,
+    )
+    assert deleted is not None
+    assert "角色卡已删除（可恢复）" in deleted.content
+    assert (await repository.get_character(character.character_id)).status == (
+        "archived"
+    )
+    listed_after_delete = await registry.dispatch(".pc list", context)
+    assert listed_after_delete is not None
+    assert listed_after_delete.content == "你还没有已导入的角色卡。"
 
 
 @pytest.mark.asyncio

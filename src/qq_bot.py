@@ -47,7 +47,10 @@ from src.chat.rules.dnd5r import (
 )
 from src.chat.tools import PortableToolService, ToolRegistry
 from src.trpg import SQLiteTrpgRepository
-from src.trpg.characters import CharacterServiceRegistry
+from src.trpg.characters import (
+    CharacterManagementService,
+    CharacterServiceRegistry,
+)
 from src.trpg.importing.service import CharacterDraftService
 
 
@@ -154,6 +157,7 @@ def create_qq_command_registry(
     rule_systems: RuleSystemRegistry | None = None,
     *,
     character_draft_service: CharacterDraftService | None = None,
+    character_management_service: CharacterManagementService | None = None,
     max_xlsx_bytes: int = DEFAULT_MAX_XLSX_BYTES,
 ) -> CommandRegistry:
     """Build the traditional commands enabled by the QQ runtime."""
@@ -166,6 +170,7 @@ def create_qq_command_registry(
         register_dnd5r_character_commands(
             registry,
             character_draft_service,
+            character_management_service=character_management_service,
             max_xlsx_bytes=max_xlsx_bytes,
         )
     return registry
@@ -264,13 +269,16 @@ async def run_qq_bot(settings: QQBotSettings) -> None:
         character_services=character_services,
         schemas={"dnd5r": DND5R_CHARACTER_SCHEMA},
     )
+    character_management_service = CharacterManagementService(trpg_repository)
     command_registry = create_qq_command_registry(
         rule_systems,
         character_draft_service=character_draft_service,
+        character_management_service=character_management_service,
         max_xlsx_bytes=settings.max_xlsx_bytes,
     )
     confirmation_router = create_dnd5r_confirmation_router(
-        character_draft_service
+        character_draft_service,
+        character_management_service,
     )
     tool_registry = create_qq_tool_registry(rule_systems)
     chat_core = await initialize_qq_chat_core(

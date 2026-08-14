@@ -204,6 +204,87 @@ class SQLiteTrpgRepository:
             row = await cursor.fetchone()
         return _row_to_character(row) if row else None
 
+    async def list_characters_for_owner(
+        self,
+        *,
+        owner_platform: str,
+        owner_user_id: str,
+        status: str = "active",
+    ) -> list[Character]:
+        """List one user's characters without exposing another user's cards."""
+
+        clean_platform = _clean_required(
+            owner_platform, "owner_platform"
+        ).lower()
+        clean_user_id = _clean_required(owner_user_id, "owner_user_id")
+        clean_status = _clean_required(status, "status").lower()
+        async with aiosqlite.connect(self.db_path) as database:
+            await self._configure_connection(database)
+            database.row_factory = aiosqlite.Row
+            cursor = await database.execute(
+                """
+                SELECT character_id, owner_platform, owner_user_id, owner_name,
+                       name, ruleset_key, sheet_version, sheet_data_json,
+                       status, created_at, updated_at
+                FROM characters
+                WHERE owner_platform = ? AND owner_user_id = ? AND status = ?
+                ORDER BY created_at, character_id
+                """,
+                (clean_platform, clean_user_id, clean_status),
+            )
+            rows = await cursor.fetchall()
+        return [_row_to_character(row) for row in rows]
+
+    async def archive_character_for_owner(
+        self,
+        *,
+        character_id: str,
+        owner_platform: str,
+        owner_user_id: str,
+    ) -> Character | None:
+        """Archive one owned character while preserving provenance and links."""
+
+        clean_character_id = _clean_required(character_id, "character_id")
+        clean_platform = _clean_required(
+            owner_platform, "owner_platform"
+        ).lower()
+        clean_user_id = _clean_required(owner_user_id, "owner_user_id")
+        timestamp = _utc_now()
+        async with aiosqlite.connect(self.db_path) as database:
+            await self._configure_connection(database)
+            database.row_factory = aiosqlite.Row
+            await database.execute(
+                """
+                UPDATE characters
+                SET status = 'archived', updated_at = ?
+                WHERE character_id = ?
+                  AND owner_platform = ?
+                  AND owner_user_id = ?
+                  AND status != 'archived'
+                """,
+                (
+                    timestamp,
+                    clean_character_id,
+                    clean_platform,
+                    clean_user_id,
+                ),
+            )
+            cursor = await database.execute(
+                """
+                SELECT character_id, owner_platform, owner_user_id, owner_name,
+                       name, ruleset_key, sheet_version, sheet_data_json,
+                       status, created_at, updated_at
+                FROM characters
+                WHERE character_id = ?
+                  AND owner_platform = ?
+                  AND owner_user_id = ?
+                """,
+                (clean_character_id, clean_platform, clean_user_id),
+            )
+            row = await cursor.fetchone()
+            await database.commit()
+        return _row_to_character(row) if row else None
+
     async def save_character_draft(
         self,
         *,
@@ -434,12 +515,14 @@ class SQLiteTrpgRepository:
             if campaign is None:
                 raise KeyError(f"找不到 Campaign：{campaign_id}")
             character_cursor = await database.execute(
-                "SELECT ruleset_key FROM characters WHERE character_id = ?",
+                "SELECT ruleset_key, status FROM characters WHERE character_id = ?",
                 (character_id,),
             )
             character = await character_cursor.fetchone()
             if character is None:
                 raise KeyError(f"找不到 Character：{character_id}")
+            if character["status"] != "active":
+                raise ValueError("已归档的角色不能加入 Campaign")
             if campaign["ruleset_key"] != character["ruleset_key"]:
                 raise ValueError(
                     "角色与 Campaign 的规则系统不一致："
