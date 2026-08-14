@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
+from sqlalchemy.engine import URL
 
 from alembic import context
 
@@ -32,10 +33,18 @@ DB_NAME = os.getenv("POSTGRES_DB", "bot_db")
 
 # For Alembic's sync operations, we use psycopg2.
 # The main application will still use its own asyncpg connection.
-DATABASE_URL = (
-    f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+DATABASE_URL = URL.create(
+    "postgresql+psycopg2",
+    username=DB_USER,
+    password=DB_PASSWORD,
+    host=DB_HOST,
+    port=int(DB_PORT),
+    database=DB_NAME,
 )
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+config.set_main_option(
+    "sqlalchemy.url",
+    DATABASE_URL.render_as_string(hide_password=False).replace("%", "%%"),
+)
 
 
 # add your model's MetaData object here
