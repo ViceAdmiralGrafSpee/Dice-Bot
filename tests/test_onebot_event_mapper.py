@@ -68,6 +68,37 @@ def test_maps_private_reply_and_image_placeholder() -> None:
     assert incoming.conversation.conversation_id == "10001"
 
 
+def test_maps_napcat_file_segment_without_loading_bytes() -> None:
+    event = {
+        "self_id": 90001,
+        "post_type": "message",
+        "message_type": "private",
+        "message_id": 30006,
+        "user_id": 10001,
+        "sender": {"nickname": "玩家"},
+        "message": [
+            {
+                "type": "file",
+                "data": {
+                    "file": "角色卡.xlsx",
+                    "file_id": "file-uuid",
+                    "file_size": "4096",
+                    "url": "https://example.invalid/card.xlsx",
+                },
+            }
+        ],
+    }
+
+    incoming = map_onebot_message(event)
+
+    assert incoming.text == ""
+    assert len(incoming.files) == 1
+    assert incoming.files[0].name == "角色卡.xlsx"
+    assert incoming.files[0].file_id == "file-uuid"
+    assert incoming.files[0].size == 4096
+    assert incoming.files[0].url == "https://example.invalid/card.xlsx"
+
+
 def test_supports_cq_string_messages() -> None:
     event = {
         "self_id": "90001",

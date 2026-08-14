@@ -31,10 +31,24 @@ from src.chat.memory import SQLiteConversationRepository
 from src.chat.platform.onebot.persistent_chat import (
     handle_persistent_onebot_chat_event,
 )
+from src.chat.platform.onebot.file_transfer import (
+    OneBotIncomingFileProvider,
+    RecentMessageFileStore,
+)
 from src.chat.platform.onebot.transport import OneBotWebSocketClient
 from src.chat.rules import RuleSystemRegistry
 from src.chat.rules.dnd5e import Dnd5eRuleSystem
+from src.chat.rules.dnd5r import (
+    DEFAULT_MAX_XLSX_BYTES,
+    DND5R_CHARACTER_SCHEMA,
+    Dnd5rCharacterService,
+    create_dnd5r_confirmation_router,
+    register_dnd5r_character_commands,
+)
 from src.chat.tools import PortableToolService, ToolRegistry
+from src.trpg import SQLiteTrpgRepository
+from src.trpg.characters import CharacterServiceRegistry
+from src.trpg.importing.service import CharacterDraftService
 
 
 log = logging.getLogger(__name__)
@@ -51,6 +65,7 @@ class QQBotSettings:
     access_token: str
     ai_model: str = DEFAULT_QQ_AI_MODEL
     reconnect_seconds: float = 5.0
+    max_xlsx_bytes: int = DEFAULT_MAX_XLSX_BYTES
 
 
 class OneBotClient(Protocol):
@@ -61,6 +76,8 @@ class OneBotClient(Protocol):
     def events(self) -> Any: ...
 
     async def send_message(self, event: Mapping[str, Any], text: str) -> None: ...
+
+    async def get_file(self, file_id: str) -> Mapping[str, Any]: ...
 
 
 EventHandler = Callable[[OneBotClient, Mapping[str, Any], ChatCore], Awaitable[bool]]
@@ -108,37 +125,69 @@ def load_qq_settings(
     if reconnect_seconds <= 0:
         raise QQConfigurationError("QQ_RECONNECT_SECONDS 必须大于 0。")
 
+    max_xlsx_mb_text = values.get("QQ_MAX_XLSX_MB", "10").strip()
+    try:
+        max_xlsx_mb = int(max_xlsx_mb_text)
+    except ValueError as error:
+        raise QQConfigurationError("QQ_MAX_XLSX_MB 必须是整数。") from error
+    if not 1 <= max_xlsx_mb <= 100:
+        raise QQConfigurationError("QQ_MAX_XLSX_MB 必须在 1 到 100 之间。")
+
     return QQBotSettings(
         ws_url=ws_url,
         access_token=access_token,
         ai_model=ai_model,
         reconnect_seconds=reconnect_seconds,
+        max_xlsx_bytes=max_xlsx_mb * 1024 * 1024,
     )
 
 
-def create_qq_command_registry() -> CommandRegistry:
+def create_qq_rule_system_registry() -> RuleSystemRegistry:
+    """Build one shared set of rule-system actions for every QQ adapter."""
+
+    registry = RuleSystemRegistry()
+    registry.register(Dnd5eRuleSystem())
+    return registry
+
+
+def create_qq_command_registry(
+    rule_systems: RuleSystemRegistry | None = None,
+    *,
+    character_draft_service: CharacterDraftService | None = None,
+    max_xlsx_bytes: int = DEFAULT_MAX_XLSX_BYTES,
+) -> CommandRegistry:
     """Build the traditional commands enabled by the QQ runtime."""
 
     registry = CommandRegistry()
     register_dice_commands(registry)
-    rule_systems = RuleSystemRegistry()
-    rule_systems.register(Dnd5eRuleSystem())
-    rule_systems.register_commands(registry)
+    systems = rule_systems or create_qq_rule_system_registry()
+    systems.register_commands(registry)
+    if character_draft_service is not None:
+        register_dnd5r_character_commands(
+            registry,
+            character_draft_service,
+            max_xlsx_bytes=max_xlsx_bytes,
+        )
     return registry
 
 
-def create_qq_tool_registry() -> ToolRegistry:
+def create_qq_tool_registry(
+    rule_systems: RuleSystemRegistry | None = None,
+) -> ToolRegistry:
     """Build the LLM-callable tools enabled by the QQ runtime."""
 
     registry = ToolRegistry()
     register_dice_tools(registry)
-    rule_systems = RuleSystemRegistry()
-    rule_systems.register(Dnd5eRuleSystem())
-    rule_systems.register_tools(registry)
+    systems = rule_systems or create_qq_rule_system_registry()
+    systems.register_tools(registry)
     return registry
 
 
-async def initialize_qq_chat_core(settings: QQBotSettings) -> ChatCore:
+async def initialize_qq_chat_core(
+    settings: QQBotSettings,
+    *,
+    tool_registry: ToolRegistry | None = None,
+) -> ChatCore:
     """Initialize the existing platform-neutral chat flow for QQ."""
 
     # Keep these imports after configuration validation. A missing Key should
@@ -153,9 +202,9 @@ async def initialize_qq_chat_core(settings: QQBotSettings) -> ChatCore:
     await chat_db_manager.init_async()
     await world_book_db_manager.init_async()
 
-    tool_registry = create_qq_tool_registry()
-    tool_service = PortableToolService(tool_registry)
-    declarations = tool_registry.declarations()
+    enabled_tools = tool_registry or create_qq_tool_registry()
+    tool_service = PortableToolService(enabled_tools)
+    declarations = enabled_tools.declarations()
     ai_service.set_tools(
         declarations,
         {declaration.name: declaration.function for declaration in declarations},
@@ -205,10 +254,32 @@ async def process_onebot_events(
 async def run_qq_bot(settings: QQBotSettings) -> None:
     """Connect the shared chat core to NapCat and keep reconnecting."""
 
-    chat_core = await initialize_qq_chat_core(settings)
+    rule_systems = create_qq_rule_system_registry()
+    trpg_repository = SQLiteTrpgRepository()
+    await trpg_repository.initialize()
+    character_services = CharacterServiceRegistry()
+    character_services.register(Dnd5rCharacterService(trpg_repository))
+    character_draft_service = CharacterDraftService(
+        repository=trpg_repository,
+        character_services=character_services,
+        schemas={"dnd5r": DND5R_CHARACTER_SCHEMA},
+    )
+    command_registry = create_qq_command_registry(
+        rule_systems,
+        character_draft_service=character_draft_service,
+        max_xlsx_bytes=settings.max_xlsx_bytes,
+    )
+    confirmation_router = create_dnd5r_confirmation_router(
+        character_draft_service
+    )
+    tool_registry = create_qq_tool_registry(rule_systems)
+    chat_core = await initialize_qq_chat_core(
+        settings,
+        tool_registry=tool_registry,
+    )
     conversation_repository = SQLiteConversationRepository()
     await conversation_repository.initialize()
-    command_registry = create_qq_command_registry()
+    recent_files = RecentMessageFileStore()
 
     async def persistent_event_handler(client, event, core) -> bool:
         return await handle_persistent_onebot_chat_event(
@@ -217,6 +288,9 @@ async def run_qq_bot(settings: QQBotSettings) -> None:
             core,
             conversation_repository,
             command_registry,
+            file_provider=OneBotIncomingFileProvider(client),
+            recent_files=recent_files,
+            text_router=confirmation_router,
         )
 
     try:
