@@ -20,6 +20,7 @@ class ToolExecutionContext:
     user_id: str | None = None
     user_name: str | None = None
     platform: str | None = None
+    user_text: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +35,7 @@ ToolHandler = Callable[
     [Mapping[str, Any], ToolExecutionContext],
     Awaitable[ToolOutcome],
 ]
+ToolAvailability = Callable[[ToolExecutionContext], bool]
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +45,10 @@ class ToolDefinition:
     parameters: Mapping[str, Any]
     handler: ToolHandler
     category: str = "general"
+    availability: ToolAvailability | None = None
+
+    def is_available(self, context: ToolExecutionContext) -> bool:
+        return self.availability is None or self.availability(context)
 
     def as_declaration(self) -> ToolDeclaration:
         return ToolDeclaration(
@@ -66,8 +72,14 @@ class ToolRegistry:
     def get(self, name: str) -> ToolDefinition | None:
         return self._definitions.get(name)
 
-    def declarations(self) -> list[ToolDeclaration]:
-        return [definition.as_declaration() for definition in self._definitions.values()]
+    def declarations(
+        self, context: ToolExecutionContext | None = None
+    ) -> list[ToolDeclaration]:
+        return [
+            definition.as_declaration()
+            for definition in self._definitions.values()
+            if context is None or definition.is_available(context)
+        ]
 
 
 class PortableToolService:
@@ -80,8 +92,13 @@ class PortableToolService:
         self,
         _user_id_for_settings: str | None = None,
         provider_type: str | None = None,
+        user_text: str | None = None,
     ) -> list[Any]:
-        declarations = self.registry.declarations()
+        context = ToolExecutionContext(
+            user_id=self._optional_string(_user_id_for_settings),
+            user_text=self._optional_string(user_text),
+        )
+        declarations = self.registry.declarations(context)
         if ProviderFormat.is_gemini_provider(provider_type or ""):
             return to_gemini_tools(declarations)
         return [declaration.to_openai_format() for declaration in declarations]
@@ -100,7 +117,10 @@ class PortableToolService:
             user_id=self._optional_string(kwargs.get("user_id")),
             user_name=self._optional_string(kwargs.get("user_name")),
             platform=self._optional_string(kwargs.get("platform")),
+            user_text=self._optional_string(kwargs.get("user_text")),
         )
+        if not definition.is_available(context):
+            return {"error": f"当前消息未明确请求使用工具：{name}"}
         try:
             outcome = await definition.handler(arguments, context)
         except Exception as error:

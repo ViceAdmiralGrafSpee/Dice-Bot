@@ -5,6 +5,7 @@ import pytest
 
 import src.chat.services.chat_service as chat_service_module
 from src.chat.dice import DiceEngine, register_dice_tools
+from src.chat.dice.tool import message_requests_dice
 from src.chat.platform import ConversationContext, ConversationKind, IncomingMessage
 from src.chat.services.chat_service import ChatService
 from src.chat.tools import PortableToolService, ToolRegistry
@@ -13,6 +14,45 @@ from src.chat.tools import PortableToolService, ToolRegistry
 def _fixed_engine(*values: int) -> DiceEngine:
     rolls = iter(values)
     return DiceEngine(roll_die=lambda _sides: next(rolls))
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("这是目前最后一关了", False),
+        ("10-1吧", False),
+        ("我推是斯佩", False),
+        ("这个骰娘很可爱", False),
+        ("我们刚才聊了骰子机制", False),
+        ("1d100", True),
+        ("帮我骰 2d6+3", True),
+        ("做一次侦查检定", True),
+        ("随机决定一下谁先走", True),
+    ],
+)
+def test_dice_intent_requires_current_message_request(
+    message: str, expected: bool
+) -> None:
+    assert message_requests_dice(message) is expected
+
+
+@pytest.mark.asyncio
+async def test_roll_dice_is_hidden_and_rejected_for_ordinary_narration() -> None:
+    registry = ToolRegistry()
+    register_dice_tools(registry, _fixed_engine(33))
+    service = PortableToolService(registry)
+
+    tools = await service.get_dynamic_tools_for_context(
+        provider_type="deepseek", user_text="这是目前最后一关了"
+    )
+    payload = await service.execute_tool_call(
+        {"name": "roll_dice", "arguments": {"expression": "1d100"}},
+        user_text="这是目前最后一关了",
+    )
+
+    assert tools == []
+    assert "error" in payload
+    assert "authoritative_output" not in payload
 
 
 @pytest.mark.asyncio
@@ -175,3 +215,4 @@ async def test_chat_keeps_python_result_even_if_llm_narration_fails(
         )
     assert result.authoritative_outputs == ["🎲 2d6+3 = [4, 2] + 3 = 9"]
     assert result.tools_called == ["roll_dice"]
+    assert request.execute_tool_call.await_args.kwargs["user_text"] == "帮我骰 2d6+3"

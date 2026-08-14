@@ -135,6 +135,7 @@ class ToolService:
         self,
         user_id_for_settings: Optional[str] = None,
         provider_type: Optional[str] = None,
+        user_text: Optional[str] = None,
     ) -> List[Any]:
         """
         根据提供的用户ID和Provider类型动态获取可用的工具列表。
@@ -148,10 +149,12 @@ class ToolService:
             provider_type: Provider 类型，用于决定返回的工具格式。
                 - "gemini_official" 或 "gemini_custom": 返回 Gemini 格式 (genai_types.Tool)
                 - 其他 (deepseek, openai_compatible 等): 返回 OpenAI 格式 (Dict)
+            user_text: 当前用户消息；传统 Discord 工具暂不使用此字段。
 
         Returns:
             根据provider类型返回对应格式的工具列表。
         """
+        del user_text
         # 获取全局禁用的工具列表
         disabled_tools = await global_tool_settings_service.get_disabled_tools()
 

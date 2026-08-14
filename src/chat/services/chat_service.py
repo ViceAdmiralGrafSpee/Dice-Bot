@@ -454,7 +454,9 @@ class ChatService:
 
             # 获取工具列表（根据 Provider 类型返回对应格式）
             tools = await ai_service.tool_service.get_dynamic_tools_for_context(
-                user_id_for_settings, provider_type=provider_type
+                user_id_for_settings,
+                provider_type=provider_type,
+                user_text=user_content,
             )
 
             # 定义工具执行器（使用闭包追踪本次请求中调用的工具）
@@ -479,6 +481,7 @@ class ChatService:
                     user_id_for_settings=user_id_for_settings,
                     user_name=user_name,
                     platform=message.platform,
+                    user_text=user_content,
                     fallback_query=rag_query,
                     channel_context=channel_context,
                 )
@@ -541,6 +544,7 @@ class ChatService:
                     tool_executor=tool_executor,
                     captured_tool_records=_captured_tool_records,
                     user_id_for_settings=user_id_for_settings,
+                    user_text=user_content,
                 )
             else:
                 result = await ai_service.generate_with_tools(
@@ -550,6 +554,7 @@ class ChatService:
                     tools=tools,
                     tool_executor=tool_executor,
                     user_id_for_settings=user_id_for_settings,
+                    user_text=user_content,
                 )
 
             # 记录模型使用统计

@@ -926,7 +926,9 @@ class AIService:
                         fallback_provider_type = provider.provider_type
                         fallback_tools = (
                             await self._tool_service.get_dynamic_tools_for_context(
-                                user_id_for_settings, provider_type=fallback_provider_type
+                                user_id_for_settings,
+                                provider_type=fallback_provider_type,
+                                user_text=kwargs.get("user_text"),
                             )
                         )
                         log.info(
