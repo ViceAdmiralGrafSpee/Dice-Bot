@@ -316,6 +316,7 @@ eee7695 feat: add portable command registry
 - 已建立共享 `ImportCharacterAction` 和首个 `Dnd5eCharacterService`；当前支持内部标准格式 `dice_bot_json_v1`，最小校验角色名、2014 版标识和可选的 1–20 级等级。
 - DND5r XLSX 草稿流程已接入 QQ：同一用户在同一会话上传文件后可使用 `.pc import`，再以 `.pc preview <草稿ID>` 查看，并用精确口令 `确认 <草稿ID>` 入库。
 - 正式角色卡可用 `.pc list` 按 QQ 身份列出；`.pc delete <角色ID>` 只生成删除预览，只有同一所有者继续发送精确口令 `确认删除 <角色ID>` 才会将角色归档。
+- LLM 可通过只读 `character_list` Tool 查询当前用户的角色卡；它与 `.pc list` 复用同一个 `ListOwnedCharactersAction`。骰子和 DND5e 检定 Tool 会核对用户原始消息，没有明确掷骰/检定意图时即使模型误选工具也不会生成随机数。
 - 腾讯云 Ubuntu VPS 已通过 `dice-bot.service` 生产运行，并设置开机启动和自动重启。
 - GitHub 主仓库到 Gitee 的单向 Pull 镜像已建立。
 
@@ -414,6 +415,7 @@ QQ 文件流程是：NapCat 文件事件 → 平台无关 `MessageFile` → 受�
 - `src/chat/actions/runtime.py`：命令与 LLM Tool 共享的异步业务动作协议和权威结构化结果。
 - `src/chat/actions/import_character.py`：所有命令和 Agent 共用的角色导入 Action；不直接识别 QQ 或模型协议。
 - `src/chat/actions/character_draft.py`：保存、预览和确认草稿的共享 Action；未来命令与 Agent 必须复用。
+- `src/chat/actions/character_management.py`：角色列表、删除预览和归档确认的共享 Action；命令与只读 Agent Tool 复用。
 - `src/chat/rules/runtime.py`：平台无关规则系统注册边界。
 - `src/chat/rules/dnd5e/`：DND5e 2014 检定 Action、引擎、命令、Tool、规则插件及来源说明。
 - `src/chat/rules/dnd5e/character_service.py`：DND5e 2014 标准角色卡的校验和持久化 Service。
@@ -422,6 +424,7 @@ QQ 文件流程是：NapCat 文件事件 → 平台无关 `MessageFile` → 受�
 - `src/chat/rules/dnd5r/xlsx_importer.py`：将已识别 XLSX 确定性映射为待确认 CharacterDraft，不写数据库。
 - `src/chat/rules/dnd5r/character_commands.py`：QQ 可用的 `.pc import`、草稿预览、角色列表、安全删除和精确确认路由，只调用共享 Action。
 - `src/chat/tools/runtime.py`：通用工具注册、Provider 格式转换和执行边界；COC/DND 工具应复用这里。
+- `src/chat/tools/character_management.py`：只读 `character_list` Tool，将平台身份转交给共享角色列表 Action，不接受模型指定其他用户。
 - `src/trpg/importing/`：规则无关的 SourceSnapshot、WorkbookInspection、TemplateProfile、CharacterDraft、来源链、序列化、预览和确认服务。
 - `src/trpg/models.py`：规则无关的 Campaign、Character 和多对多参团记录模型。
 - `src/trpg/repository.py`：独立 TRPG SQLite 初始化、角色/团数据、按所有者列出与归档、草稿持久化和原子确认。

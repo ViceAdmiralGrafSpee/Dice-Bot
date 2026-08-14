@@ -3,6 +3,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from src.chat.actions import ActionContext, ActionResult
+from src.chat.tools import PortableToolService
+
 from src.qq_bot import (
     DEFAULT_QQ_AI_MODEL,
     QQBotSettings,
@@ -70,6 +73,62 @@ def test_qq_runtime_registers_dice_and_dnd5e_llm_tools() -> None:
         "roll_dice",
         "dnd5e_check",
     ]
+
+
+def test_qq_runtime_registers_character_list_tool_when_action_exists() -> None:
+    class CharacterListAction:
+        async def execute(self, _request, _context):
+            return ActionResult(data={"characters": []})
+
+    registry = create_qq_tool_registry(
+        list_characters_action=CharacterListAction()
+    )
+
+    assert [item.name for item in registry.declarations()] == [
+        "roll_dice",
+        "dnd5e_check",
+        "character_list",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_qq_pc_list_command_and_llm_tool_share_one_action() -> None:
+    calls: list[ActionContext] = []
+
+    class CharacterListAction:
+        async def execute(self, _request, context):
+            calls.append(context)
+            return ActionResult(
+                data={"characters": []},
+                authoritative_output="你还没有已导入的角色卡。",
+            )
+
+    action = CharacterListAction()
+    commands = create_qq_command_registry(
+        character_draft_service=SimpleNamespace(),
+        list_characters_action=action,
+    )
+    tools = PortableToolService(
+        create_qq_tool_registry(list_characters_action=action)
+    )
+    context = ActionContext(
+        user_id="10001",
+        user_name="玩家甲",
+        platform="qq",
+    )
+
+    command_result = await commands.dispatch(".pc list", context)
+    tool_result = await tools.execute_tool_call(
+        {"name": "character_list", "arguments": {}},
+        user_id="10001",
+        user_name="玩家甲",
+        platform="qq",
+        message_text="帮我看看我的角色卡列表",
+    )
+
+    assert command_result is not None
+    assert command_result.content == tool_result["authoritative_output"]
+    assert calls == [context, context]
 
 
 @pytest.mark.parametrize(

@@ -228,6 +228,7 @@ class ToolService:
         log_detailed: bool = False,
         user_id_for_settings: Optional[str] = None,
         user_name: Optional[str] = None,
+        message_text: Optional[str] = None,
         fallback_query: Optional[str] = None,
         channel_context: Optional[List[Dict]] = None,
     ) -> types.Part:

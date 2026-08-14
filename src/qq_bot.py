@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 from src.chat.commands import CommandRegistry
+from src.chat.actions import ListOwnedCharactersAction
 from src.chat.dice import register_dice_commands, register_dice_tools
 from src.chat.platform.onebot.chat_gateway import (
     ChatCore,
@@ -45,7 +46,11 @@ from src.chat.rules.dnd5r import (
     create_dnd5r_confirmation_router,
     register_dnd5r_character_commands,
 )
-from src.chat.tools import PortableToolService, ToolRegistry
+from src.chat.tools import (
+    PortableToolService,
+    ToolRegistry,
+    register_character_management_tools,
+)
 from src.trpg import SQLiteTrpgRepository
 from src.trpg.characters import (
     CharacterManagementService,
@@ -158,6 +163,7 @@ def create_qq_command_registry(
     *,
     character_draft_service: CharacterDraftService | None = None,
     character_management_service: CharacterManagementService | None = None,
+    list_characters_action: ListOwnedCharactersAction | None = None,
     max_xlsx_bytes: int = DEFAULT_MAX_XLSX_BYTES,
 ) -> CommandRegistry:
     """Build the traditional commands enabled by the QQ runtime."""
@@ -171,6 +177,7 @@ def create_qq_command_registry(
             registry,
             character_draft_service,
             character_management_service=character_management_service,
+            list_characters_action=list_characters_action,
             max_xlsx_bytes=max_xlsx_bytes,
         )
     return registry
@@ -178,6 +185,8 @@ def create_qq_command_registry(
 
 def create_qq_tool_registry(
     rule_systems: RuleSystemRegistry | None = None,
+    *,
+    list_characters_action: ListOwnedCharactersAction | None = None,
 ) -> ToolRegistry:
     """Build the LLM-callable tools enabled by the QQ runtime."""
 
@@ -185,6 +194,11 @@ def create_qq_tool_registry(
     register_dice_tools(registry)
     systems = rule_systems or create_qq_rule_system_registry()
     systems.register_tools(registry)
+    if list_characters_action is not None:
+        register_character_management_tools(
+            registry,
+            list_action=list_characters_action,
+        )
     return registry
 
 
@@ -232,9 +246,13 @@ async def initialize_qq_chat_core(
     # The original Discord UI stores its model selection in SQLite. QQ has no
     # such UI yet, so the process configuration is the source of truth.
     await chat_db_manager.set_global_setting("ai_model", settings.ai_model)
+    loaded_tool_names = "、".join(
+        declaration.name for declaration in declarations
+    )
     log.info(
-        "QQ 聊天核心已就绪，当前模型：%s（已加载工具：roll_dice、dnd5e_check）",
+        "QQ 聊天核心已就绪，当前模型：%s（已加载工具：%s）",
         settings.ai_model,
+        loaded_tool_names or "无",
     )
     return chat_service
 
@@ -270,17 +288,24 @@ async def run_qq_bot(settings: QQBotSettings) -> None:
         schemas={"dnd5r": DND5R_CHARACTER_SCHEMA},
     )
     character_management_service = CharacterManagementService(trpg_repository)
+    list_characters_action = ListOwnedCharactersAction(
+        character_management_service
+    )
     command_registry = create_qq_command_registry(
         rule_systems,
         character_draft_service=character_draft_service,
         character_management_service=character_management_service,
+        list_characters_action=list_characters_action,
         max_xlsx_bytes=settings.max_xlsx_bytes,
     )
     confirmation_router = create_dnd5r_confirmation_router(
         character_draft_service,
         character_management_service,
     )
-    tool_registry = create_qq_tool_registry(rule_systems)
+    tool_registry = create_qq_tool_registry(
+        rule_systems,
+        list_characters_action=list_characters_action,
+    )
     chat_core = await initialize_qq_chat_core(
         settings,
         tool_registry=tool_registry,

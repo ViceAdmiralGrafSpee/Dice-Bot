@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 from typing import Any
 
 from src.chat.tools import (
@@ -15,13 +16,32 @@ from src.chat.tools import (
 from .engine import DiceEngine, DiceExpressionError
 
 
+_DICE_EXPRESSION_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_])\d*[dD]\d+(?:\s*[+-]\s*\d+)?"
+)
+_EXPLICIT_DICE_TERMS = ("骰", "掷", "擲", "roll", "检定", "檢定", "随机")
+
+
+def _has_explicit_dice_intent(message_text: str) -> bool:
+    lowered = message_text.lower()
+    return bool(_DICE_EXPRESSION_PATTERN.search(lowered)) or any(
+        term in lowered for term in _EXPLICIT_DICE_TERMS
+    )
+
+
 def create_roll_dice_tool(engine: DiceEngine | None = None) -> ToolDefinition:
     dice_engine = engine or DiceEngine()
 
     async def roll_dice(
         arguments: Mapping[str, Any],
-        _context: ToolExecutionContext,
+        context: ToolExecutionContext,
     ) -> ToolOutcome:
+        if (
+            context.message_text is not None
+            and not _has_explicit_dice_intent(context.message_text)
+        ):
+            raise DiceExpressionError("用户没有明确要求掷骰，已拒绝生成随机结果")
+
         expression = arguments.get("expression")
         if not isinstance(expression, str) or not expression.strip():
             raise DiceExpressionError("expression 必须是非空骰子表达式")

@@ -20,6 +20,7 @@ class ToolExecutionContext:
     user_id: str | None = None
     user_name: str | None = None
     platform: str | None = None
+    message_text: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +101,7 @@ class PortableToolService:
             user_id=self._optional_string(kwargs.get("user_id")),
             user_name=self._optional_string(kwargs.get("user_name")),
             platform=self._optional_string(kwargs.get("platform")),
+            message_text=self._optional_string(kwargs.get("message_text")),
         )
         try:
             outcome = await definition.handler(arguments, context)

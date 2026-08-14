@@ -26,6 +26,7 @@ async def test_roll_dice_tool_returns_structured_authoritative_result() -> None:
         {"name": "roll_dice", "arguments": {"expression": "2d6+3"}},
         user_id="10001",
         platform="qq",
+        message_text="帮我骰 2d6+3",
     )
 
     assert tools[0]["function"]["name"] == "roll_dice"
@@ -54,6 +55,27 @@ async def test_invalid_llm_dice_arguments_return_error_without_random_result() -
     )
 
     assert "error" in payload
+    assert "authoritative_output" not in payload
+
+
+@pytest.mark.asyncio
+async def test_unrelated_character_query_cannot_trigger_random_dice() -> None:
+    def fail_if_called(_sides: int) -> int:
+        raise AssertionError("不相关的角色查询不应生成随机数")
+
+    registry = ToolRegistry()
+    register_dice_tools(registry, DiceEngine(roll_die=fail_if_called))
+    service = PortableToolService(registry)
+
+    payload = await service.execute_tool_call(
+        {"name": "roll_dice", "arguments": {"expression": "1d20"}},
+        user_id="10001",
+        platform="qq",
+        message_text="帮我看看我的角色卡列表",
+    )
+
+    assert "error" in payload
+    assert "没有明确要求掷骰" in payload["error"]
     assert "authoritative_output" not in payload
 
 
@@ -175,3 +197,6 @@ async def test_chat_keeps_python_result_even_if_llm_narration_fails(
         )
     assert result.authoritative_outputs == ["🎲 2d6+3 = [4, 2] + 3 = 9"]
     assert result.tools_called == ["roll_dice"]
+    assert request.execute_tool_call.await_args.kwargs["message_text"] == (
+        "帮我骰 2d6+3"
+    )

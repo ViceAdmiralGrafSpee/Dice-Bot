@@ -49,6 +49,7 @@ DELETE_CONFIRMATION_PATTERN = re.compile(
 class Dnd5rCharacterCommandHandler:
     draft_service: CharacterDraftService
     character_management_service: CharacterManagementService | None = None
+    list_characters_action: ListOwnedCharactersAction | None = None
     max_xlsx_bytes: int = DEFAULT_MAX_XLSX_BYTES
     importer: Dnd5rXlsxDraftImporter = field(
         default_factory=Dnd5rXlsxDraftImporter
@@ -61,11 +62,16 @@ class Dnd5rCharacterCommandHandler:
         if operation == "import":
             return await self._import_xlsx(request)
         if operation in {"list", "ls"}:
-            if self.character_management_service is None:
+            list_action = self.list_characters_action
+            if list_action is None and self.character_management_service is not None:
+                list_action = ListOwnedCharactersAction(
+                    self.character_management_service
+                )
+            if list_action is None:
                 return CommandResult("角色卡管理服务尚未启用。")
-            result = await ListOwnedCharactersAction(
-                self.character_management_service
-            ).execute(ListOwnedCharactersRequest(), request.context)
+            result = await list_action.execute(
+                ListOwnedCharactersRequest(), request.context
+            )
             return CommandResult(
                 result.authoritative_output or "没有可显示的角色卡"
             )
@@ -171,6 +177,7 @@ def register_dnd5r_character_commands(
     draft_service: CharacterDraftService,
     *,
     character_management_service: CharacterManagementService | None = None,
+    list_characters_action: ListOwnedCharactersAction | None = None,
     max_xlsx_bytes: int = DEFAULT_MAX_XLSX_BYTES,
 ) -> None:
     registry.register(
@@ -178,6 +185,7 @@ def register_dnd5r_character_commands(
         Dnd5rCharacterCommandHandler(
             draft_service=draft_service,
             character_management_service=character_management_service,
+            list_characters_action=list_characters_action,
             max_xlsx_bytes=max_xlsx_bytes,
         ),
     )

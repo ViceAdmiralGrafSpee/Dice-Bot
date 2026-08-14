@@ -390,6 +390,7 @@ class ChatService:
                     user_id_for_settings=user_id_for_settings,
                     user_name=user_name,
                     platform=message.platform,
+                    message_text=user_content,
                     fallback_query=rag_query,
                     channel_context=channel_context,
                 )

@@ -98,6 +98,7 @@ async def test_dnd5e_tool_returns_structured_authoritative_result() -> None:
         },
         user_id="10001",
         platform="qq",
+        message_text="帮我做一次 DND 5e 优势检定，加值 5",
     )
 
     function = tools[0]["function"]
@@ -140,6 +141,30 @@ async def test_dnd5e_tool_defaults_to_normal_check_with_zero_modifier() -> None:
         "modifier": 0,
         "total": 12,
     }
+
+
+@pytest.mark.asyncio
+async def test_unrelated_character_query_cannot_trigger_dnd5e_check() -> None:
+    def fail_if_called() -> int:
+        raise AssertionError("不相关的角色查询不应生成 d20 随机数")
+
+    registry = ToolRegistry()
+    register_dnd5e_tools(registry, Dnd5eEngine(roll_d20=fail_if_called))
+    service = PortableToolService(registry)
+
+    payload = await service.execute_tool_call(
+        {
+            "name": "dnd5e_check",
+            "arguments": {"mode": "normal", "modifier": 0},
+        },
+        user_id="10001",
+        platform="qq",
+        message_text="帮我看看我的角色卡列表",
+    )
+
+    assert "error" in payload
+    assert "没有明确要求进行检定" in payload["error"]
+    assert "authoritative_output" not in payload
 
 
 @pytest.mark.asyncio

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 from typing import Any
 
 from src.chat.actions import ActionContext
@@ -17,6 +18,12 @@ from .action import Dnd5eCheckAction, Dnd5eCheckRequest
 from .engine import D20RollMode, Dnd5eCheckError, Dnd5eEngine
 
 
+_EXPLICIT_CHECK_PATTERN = re.compile(
+    r"(?:检定|檢定|过个|過個|过一次|過一次|d20)",
+    re.IGNORECASE,
+)
+
+
 def create_dnd5e_check_tool(
     engine: Dnd5eEngine | None = None,
     *,
@@ -28,6 +35,14 @@ def create_dnd5e_check_tool(
         arguments: Mapping[str, Any],
         context: ToolExecutionContext,
     ) -> ToolOutcome:
+        if (
+            context.message_text is not None
+            and not _EXPLICIT_CHECK_PATTERN.search(context.message_text)
+        ):
+            raise Dnd5eCheckError(
+                "用户没有明确要求进行检定，已拒绝生成随机结果"
+            )
+
         unexpected_arguments = set(arguments) - {"mode", "modifier"}
         if unexpected_arguments:
             raise Dnd5eCheckError("只接受 mode 和 modifier 参数")

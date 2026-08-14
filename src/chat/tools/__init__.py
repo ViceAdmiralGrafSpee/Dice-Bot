@@ -7,6 +7,10 @@ from .runtime import (
     ToolOutcome,
     ToolRegistry,
 )
+from .character_management import (
+    create_character_list_tool,
+    register_character_management_tools,
+)
 
 __all__ = [
     "PortableToolService",
@@ -14,4 +18,6 @@ __all__ = [
     "ToolExecutionContext",
     "ToolOutcome",
     "ToolRegistry",
+    "create_character_list_tool",
+    "register_character_management_tools",
 ]
