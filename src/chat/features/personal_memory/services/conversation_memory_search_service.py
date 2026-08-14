@@ -87,10 +87,12 @@ class ConversationMemorySearchService:
         rrf_k = self.config.get("rrf_k", 60)
         final_k = self.config.get("retrieval_top_k", 3)
         max_vector_distance = self.config.get("max_vector_distance", 0.65)
+        has_keyword_query = bool(query_text.strip())
+        search_mode = "混合搜索 (向量 + BM25)" if has_keyword_query else "仅向量搜索"
 
         log.info(
             f"[对话记忆搜索] 用户: {user_id} | Embedding模型: {embedding_model} | "
-            f"搜索模式: 混合搜索 (向量 + BM25) | 向量列: {embedding_col} | "
+            f"搜索模式: {search_mode} | 向量列: {embedding_col} | "
             f"TOP_K_VECTOR: {top_k_vector} | TOP_K_FTS: {top_k_fts} | "
             f"RRF_K: {rrf_k} | FINAL_K: {final_k} | MAX_DISTANCE: {max_vector_distance} | "
             f"排除块: {exclude_block_ids}"
@@ -100,6 +102,31 @@ class ConversationMemorySearchService:
         exclude_clause = ""
         if exclude_block_ids:
             exclude_clause = f"AND id NOT IN ({','.join(map(str, exclude_block_ids))})"
+
+        # ParadeDB rejects an empty BM25 expression such as
+        # ``conversation_text:()``. Keep the same RRF shape but substitute an
+        # explicitly empty keyword CTE when sanitizing removed every keyword.
+        if has_keyword_query:
+            keyword_search_cte = """
+            keyword_search AS (
+                SELECT
+                    id,
+                    RANK() OVER (ORDER BY paradedb.score(id) DESC) as rank
+                FROM conversation.conversation_blocks
+                WHERE user_id = :user_id
+                  AND conversation_text @@@ :query_text
+                  {exclude_clause}
+                LIMIT :top_k_fts
+            )
+            """.format(exclude_clause=exclude_clause)
+        else:
+            keyword_search_cte = """
+            keyword_search AS (
+                SELECT id, CAST(NULL AS BIGINT) AS rank
+                FROM conversation.conversation_blocks
+                WHERE FALSE
+            )
+            """
 
         # 混合搜索 SQL
         # 使用 RRF (Reciprocal Rank Fusion) 融合向量搜索和 BM25 搜索结果
@@ -118,16 +145,7 @@ class ConversationMemorySearchService:
                 ORDER BY {embedding_col} <=> CAST(:query_vector AS halfvec)
                 LIMIT :top_k_vector
             ),
-            keyword_search AS (
-                SELECT
-                    id,
-                    RANK() OVER (ORDER BY paradedb.score(id) DESC) as rank
-                FROM conversation.conversation_blocks
-                WHERE user_id = :user_id
-                  AND conversation_text @@@ :query_text
-                  {exclude_clause}
-                LIMIT :top_k_fts
-            ),
+            {keyword_search_cte},
             fused_ranks AS (
                 SELECT
                     COALESCE(s.id, k.id) as id,
@@ -158,13 +176,16 @@ class ConversationMemorySearchService:
                 sql_query,
                 {
                     "user_id": user_id,
-                    "query_text": query_text,
                     "query_vector": str(query_vector),
                     "top_k_vector": top_k_vector,
-                    "top_k_fts": top_k_fts,
                     "rrf_k": rrf_k,
                     "final_k": final_k,
                     "max_vector_distance": max_vector_distance,
+                    **(
+                        {"query_text": query_text, "top_k_fts": top_k_fts}
+                        if has_keyword_query
+                        else {}
+                    ),
                 },
             )
             rows = result.fetchall()

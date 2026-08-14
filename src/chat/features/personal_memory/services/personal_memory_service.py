@@ -63,12 +63,22 @@ class PersonalMemoryService:
                     # 使用独立事务创建对话块并清理历史
                     try:
                         async with AsyncSessionLocal() as block_session:
-                            # 创建对话块（只保存最近的 block_size 条）
-                            await conversation_block_service.create_block_from_history(
-                                user_id=str(user_id),
-                                history=list(current_history),
-                                session=block_session,
+                            # 创建最早的一段完整待处理对话块。
+                            block_id = (
+                                await conversation_block_service.create_block_from_history(
+                                    user_id=str(user_id),
+                                    history=list(current_history),
+                                    session=block_session,
+                                )
                             )
+                            if block_id is None:
+                                await block_session.rollback()
+                                log.warning(
+                                    "用户 %s 的对话块未写入，保留 %s 条待处理历史。",
+                                    user_id,
+                                    len(current_history),
+                                )
+                                return False
                             # 清理旧的对话块
                             await conversation_block_service.cleanup_old_blocks(
                                 user_id=str(user_id),

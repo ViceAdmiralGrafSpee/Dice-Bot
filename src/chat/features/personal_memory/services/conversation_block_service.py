@@ -202,8 +202,10 @@ class ConversationBlockService:
             )
             return None
 
-        # 取最近的 block_size 条消息
-        history_to_store = history[-block_size:]
+        # Persist the oldest complete pending chunk. If a provider outage lets
+        # history grow past the threshold, consuming the first chunk keeps the
+        # stored block aligned with the entries removed after a successful save.
+        history_to_store = history[:block_size]
 
         # 格式化对话文本
         conversation_text = self._format_conversation_text(history_to_store)

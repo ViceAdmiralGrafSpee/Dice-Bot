@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -21,6 +22,14 @@ def _valid_env() -> dict[str, str]:
         "ONEBOT_ACCESS_TOKEN": "local-test-token",
         "DEEPSEEK_API_KEY": "local-test-key",
     }
+
+
+def test_dotenv_load_precedes_environment_derived_chat_imports() -> None:
+    source = (Path(__file__).resolve().parents[1] / "src" / "qq_bot.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert source.index("load_dotenv()") < source.index("from src.chat.commands")
 
 
 def test_load_settings_uses_safe_deepseek_default() -> None:
@@ -163,7 +172,8 @@ async def test_qq_runtime_uses_environment_ai_when_postgres_is_absent(
         lambda _model: ("deepseek-chat", "deepseek"),
     )
     monkeypatch.setattr(ai_service, "get_provider_for_model", lambda *_args: object())
-    monkeypatch.setattr(chat_db_manager, "set_global_setting", AsyncMock())
+    set_global_setting = AsyncMock()
+    monkeypatch.setattr(chat_db_manager, "set_global_setting", set_global_setting)
 
     core = await initialize_qq_chat_core(
         QQBotSettings("ws://127.0.0.1:3001", "token")
@@ -173,3 +183,5 @@ async def test_qq_runtime_uses_environment_ai_when_postgres_is_absent(
     assert chat_service._optional_postgres_enabled is False
     initialize_without_database.assert_awaited_once_with()
     initialize_with_database.assert_not_awaited()
+    set_global_setting.assert_any_await("ai_model", DEFAULT_QQ_AI_MODEL)
+    set_global_setting.assert_any_await("embedding_model", "qwen")

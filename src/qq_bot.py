@@ -21,6 +21,10 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
+# Load process configuration before importing chat modules whose module-level
+# constants are derived from the environment (for example VECTOR_MODE).
+load_dotenv()
+
 from src.chat.commands import CommandRegistry
 from src.chat.dice import register_dice_commands, register_dice_tools
 from src.chat.platform.onebot.chat_gateway import (
@@ -232,6 +236,9 @@ async def initialize_qq_chat_core(
     # The original Discord UI stores its model selection in SQLite. QQ has no
     # such UI yet, so the process configuration is the source of truth.
     await chat_db_manager.set_global_setting("ai_model", settings.ai_model)
+    # QQ local embeddings use the Qwen model configured for this runtime. Do
+    # not let a legacy Discord UI preference silently switch it back to BGE.
+    await chat_db_manager.set_global_setting("embedding_model", "qwen")
     log.info(
         "QQ 聊天核心已就绪，当前模型：%s（已加载工具：roll_dice、dnd5e_check）",
         settings.ai_model,
@@ -329,7 +336,6 @@ async def run_qq_bot(settings: QQBotSettings) -> None:
 
 
 def main() -> int:
-    load_dotenv()
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
