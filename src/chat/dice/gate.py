@@ -53,6 +53,25 @@ def load_qq_bot_admin_ids(environ: dict[str, str] | None = None) -> frozenset[st
     )
 
 
+def can_manage_group(
+    *,
+    actor_user_id: str | None,
+    actor_role: str | None,
+    admin_ids: Sequence[str],
+) -> bool:
+    """Shared QQ group management permission used by ``.dicecmd`` / ``.cmdat``.
+
+    A group owner, a group admin, or a configured bot admin may manage the
+    QQ-only control commands.  This single implementation keeps ``.dicecmd``
+    and the new ``.cmdat`` command using the exact same permission rule so the
+    two control commands never diverge.
+    """
+    normalized = frozenset(admin_ids)
+    if actor_user_id and actor_user_id in normalized:
+        return True
+    return actor_role in {"owner", "admin", "群主", "管理员"}
+
+
 def dice_category_command_names(registry: CommandRegistry) -> set[str]:
     """Return the currently registered dice-category command names."""
     return registry.names_for_category(DICE_CATEGORY)
@@ -195,9 +214,11 @@ class DiceCategoryGate:
         actor_user_id: str | None,
         actor_role: str | None,
     ) -> bool:
-        if actor_user_id and actor_user_id in self._admin_ids:
-            return True
-        return actor_role in {"owner", "admin", "群主", "管理员"}
+        return can_manage_group(
+            actor_user_id=actor_user_id,
+            actor_role=actor_role,
+            admin_ids=self._admin_ids,
+        )
 
     def create_control_handler(self) -> CommandHandler:
         """Build the ``.dicecmd on|off|status`` handler."""

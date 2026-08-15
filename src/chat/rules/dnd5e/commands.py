@@ -80,4 +80,5 @@ def register_dnd5e_commands(
         create_dnd5e_command_handler(
             action or Dnd5eCheckAction(engine or Dnd5eEngine())
         ),
+        category="dice",
     )

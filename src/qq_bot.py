@@ -40,6 +40,10 @@ from src.chat.memory import SQLiteConversationRepository
 from src.chat.platform.onebot.persistent_chat import (
     handle_persistent_onebot_chat_event,
 )
+from src.chat.platform.onebot.command_policy import (
+    RequireAtPolicy,
+    register_cmdat_command,
+)
 from src.chat.platform.onebot.file_transfer import (
     OneBotIncomingFileProvider,
     RecentMessageFileStore,
@@ -169,6 +173,7 @@ def create_qq_command_registry(
     character_management_service: CharacterManagementService | None = None,
     max_xlsx_bytes: int = DEFAULT_MAX_XLSX_BYTES,
     dice_gate: DiceCategoryGate | None = None,
+    require_at_policy: RequireAtPolicy | None = None,
 ) -> CommandRegistry:
     """Build the traditional commands enabled by the QQ runtime."""
 
@@ -185,6 +190,8 @@ def create_qq_command_registry(
         )
     if dice_gate is not None:
         register_dice_gate_commands(registry, dice_gate)
+    if require_at_policy is not None:
+        register_cmdat_command(registry, require_at_policy)
     return registry
 
 
@@ -287,12 +294,15 @@ async def run_qq_bot(settings: QQBotSettings) -> None:
     character_management_service = CharacterManagementService(trpg_repository)
     dice_gate = DiceCategoryGate(admin_ids=load_qq_bot_admin_ids())
     await dice_gate.initialize()
+    require_at_policy = RequireAtPolicy(admin_ids=load_qq_bot_admin_ids())
+    await require_at_policy.initialize()
     command_registry = create_qq_command_registry(
         rule_systems,
         character_draft_service=character_draft_service,
         character_management_service=character_management_service,
         max_xlsx_bytes=settings.max_xlsx_bytes,
         dice_gate=dice_gate,
+        require_at_policy=require_at_policy,
     )
     confirmation_router = create_dnd5r_confirmation_router(
         character_draft_service,
@@ -318,6 +328,7 @@ async def run_qq_bot(settings: QQBotSettings) -> None:
             recent_files=recent_files,
             text_router=confirmation_router,
             dice_gate=dice_gate,
+            require_at_policy=require_at_policy,
         )
 
     try:
