@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from typing import Protocol
 
 
 class ConversationKind(str, Enum):
@@ -28,6 +29,20 @@ class MessageImage:
     data: bytes
     source: str = "attachment"
     name: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MessageFile:
+    """A platform file reference whose bytes are loaded only when needed."""
+
+    file_id: str
+    name: str
+    size: int | None = None
+    url: str | None = None
+
+
+class MessageFileProvider(Protocol):
+    async def read(self, file: MessageFile, *, max_bytes: int) -> bytes: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,3 +93,4 @@ class IncomingMessage:
     timestamp: datetime | None = None
     replied_message: RepliedMessage | None = None
     images: tuple[MessageImage, ...] = ()
+    files: tuple[MessageFile, ...] = ()

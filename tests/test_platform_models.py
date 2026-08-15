@@ -39,6 +39,7 @@ def test_qq_group_message_can_be_normalized():
     assert message.text == "骰 2d6+3"
     assert message.replied_message is None
     assert message.images == ()
+    assert message.files == ()
 
 
 def test_discord_thread_message_keeps_required_context():

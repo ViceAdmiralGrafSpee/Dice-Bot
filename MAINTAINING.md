@@ -2,20 +2,23 @@
 
 本仓库是基于 [Echoer009/Odysseia-Guidance](https://github.com/Echoer009/Odysseia-Guidance) 的衍生项目，继续遵循 AGPL-3.0。保留原项目的版权和许可证信息；新增代码和文档不得删除或弱化这些信息。
 
-当前项目采用 QQ 优先路线：渐进地把 Discord 平台层与聊天核心解耦，并通过 OneBot 11 / NapCat 接入 QQ。现有 Discord 代码暂时保留，QQ 正式入口不会启动 Discord 社区功能。不要一次性重写整个项目，也不要为了删除 Discord 而破坏已经可用的 QQ 链路。
+当前项目采用 QQ 优先路线：通过 OneBot 11 / NapCat 接入 QQ，现有 Discord 代码暂时保留，QQ 正式入口不会启动 Discord 社区功能。项目定位是“以确定性 TRPG 后端为核心、LLM 作为自然语言 Agent 前端的群聊骰娘”，不是单纯把骰子命令与聊天模型拼在一起。不要一次性重写整个项目，也不要为了删除 Discord 而破坏已经可用的 QQ 链路。
 
 ## 不可破坏的原则
 
 - `main` 只保存可追溯的稳定状态，不直接在 `main` 上开发。
 - 一次只做一个小目标，一个 commit 只表达一个容易解释的变化。
 - 修改前先说明范围；修改后列出文件、原因、行为影响和测试方法。
-- LLM 只负责理解、表达、角色扮演、规则解释、总结和建议。
+- LLM 负责意图理解、自然语言交互、工具选择、说明、角色扮演和总结。
 - 骰子随机数、数值计算、规则状态机和数据库修改必须由 Python 程序执行。
+- 传统命令和自然语言 Agent 必须共享同一套底层 Service，不得实现两套角色或规则系统。
+- DeepSeek 暂时不可用时，传统骰娘命令仍应正常工作。
+- AgentRuntime 必须通过现有 AIService / BaseProvider 边界调用模型，不得绑定 DeepSeek；模型特有协议只放在对应 Provider 或 Adapter。
 - 不提交 `.env`、API Key、Discord/QQ Token、数据库密码或任何真实凭据。
 - `.env.example` 只能包含占位符和安全默认值。
 - 不为了代码风格或“更优雅”顺手重构与当前目标无关的模块。
 
-## 仓库与远程地址
+## 主仓库、镜像与远程地址
 
 建议保持以下结构：
 
@@ -37,6 +40,14 @@ git remote -v
 git branch --show-current
 git status --short --branch
 ```
+
+GitHub `ViceAdmiralGrafSpee/Dice-Bot` 仍是最终主版本源。Gitee 已建立从 GitHub 拉取的 Pull 镜像，当前方向仅为：
+
+```text
+GitHub → Gitee
+```
+
+Gitee 用于国内网络环境下快速取得部署源码。不要假定存在双向同步，不要默认从 Gitee 回推 GitHub，也不要把 GitHub Personal Access Token 写入仓库、文档、命令历史或聊天。Gitee 镜像的实际 URL 应从 Gitee 页面或安全的服务器配置中核对，本文档不记录令牌化地址。
 
 ## 在另一台 Windows 电脑上接手
 
@@ -64,17 +75,19 @@ git remote set-url --push upstream DISABLED
 
 如果 `upstream` 已经存在，不要重复执行 `git remote add upstream`。
 
-获取当前已经推送到 GitHub 的开发分支：
+先获取远端状态并检查近期分支，不要根据旧文档硬猜最新开发分支：
 
 ```powershell
 git fetch origin
-git switch --track origin/feature/onebot-adapter
+git branch -r --sort=-committerdate
+git log -5 --oneline origin/feat/dnd5e-command-tools
+git switch --track origin/feat/dnd5e-command-tools
 ```
 
 如果本地已经有同名分支，则使用：
 
 ```powershell
-git switch feature/onebot-adapter
+git switch feat/dnd5e-command-tools
 git pull --ff-only
 ```
 
@@ -85,43 +98,79 @@ git status --short --branch
 git log -3 --oneline
 ```
 
-## 在 Linux 电脑或 VPS 上接手代码
+## VPS 生产环境
 
-以下只负责取得和运行代码，不等于完整的 VPS 生产部署方案：
+腾讯云 Ubuntu VPS 是当前生产运行环境：
 
-```bash
-git clone https://github.com/ViceAdmiralGrafSpee/Dice-Bot.git
-cd Dice-Bot
-git switch --track origin/feature/onebot-adapter
-python3 -m venv .venv
-./.venv/bin/python -m pip install -r requirements.txt
-cp .env.example .env
+```text
+生产目录：/home/ubuntu/apps/Dice-Bot
+systemd：dice-bot.service
+启动命令：/home/ubuntu/apps/Dice-Bot/.venv/bin/python -m src.qq_bot
 ```
 
-Linux 上启动 Dice-Bot 的命令是：
+服务已设置开机启动和自动重启。常用检查命令：
 
 ```bash
-./.venv/bin/python -m src.qq_bot
+sudo systemctl restart dice-bot
+systemctl status dice-bot --no-pager
+journalctl -u dice-bot -n 80 --no-pager -l
 ```
 
-NapCat 仍需作为另一个进程或容器运行。正式 VPS 部署尚未设计完成；以后应单独处理 Docker Compose 或 systemd、自动重启、日志轮转、健康检查、数据卷和端口防护。
+任何部署或同步操作都不得覆盖或删除：
+
+```text
+/home/ubuntu/apps/Dice-Bot/.env
+/home/ubuntu/apps/Dice-Bot/.venv/
+/home/ubuntu/apps/Dice-Bot/data/
+```
+
+其中 `.env` 保存 OneBot、DeepSeek 等私密配置，`.venv` 是生产 Python 环境，`data/` 包含 SQLite 聊天与运行数据。不要要求用户发送这些内容，也不要在日志或终端输出中显示密钥。
+
+生产目录最初可能来自 ZIP 上传，不保证本身是 Git 仓库。在确认 `/home/ubuntu/apps/Dice-Bot/.git` 存在且远程、分支和工作树都正确之前，禁止直接在生产目录执行 `git pull`。
+
+推荐逐渐采用源码仓库与运行目录分离：
+
+```text
+/home/ubuntu/repos/Dice-Bot  从 Gitee Pull 镜像取得的纯源码 Git 仓库
+/home/ubuntu/apps/Dice-Bot   实际生产运行目录
+```
+
+从 `repos` 同步到 `apps` 时必须排除：
+
+```text
+.git/
+.env
+.venv/
+data/
+```
+
+不要使用 `rsync --delete`，尤其是增量包只有 `src/` 和 `tests/` 时。此前的“本地代码 → ZIP 增量包 → 上传 VPS → rsync 覆盖指定目录 → 重启服务”仍可作为受控回退方式，但不能删除生产数据。
+
+目标部署链路是：
+
+```text
+本地开发 → push GitHub → GitHub Pull 同步到 Gitee
+→ VPS 在 repos 目录从 Gitee 拉取 → 排除生产数据后同步到 apps
+→ 重启 dice-bot.service → 检查状态和日志
+```
 
 ## 开始一个新开发目标
 
-目前功能仍在叠加开发分支中，不要从本地旧 `main` 直接继续开发。开始下一项工作前，先更新当前 QQ 功能分支：
+目前功能仍在叠加开发分支中，不要从本地旧 `main` 或旧 `feature/onebot-adapter` 直接继续开发。开始下一项工作前，必须先检查 GitHub 实际远端分支和源码；截至 2026-08-14，最新开发分支是：
 
 ```powershell
-git switch feature/onebot-adapter
+git fetch origin
+git switch feat/dnd5e-command-tools
 git pull --ff-only
 ```
 
 然后从它建立一个只处理单独目标的新分支，例如：
 
 ```powershell
-git switch -c feat/coc-basic-checks
+git switch -c feat/trpg-sqlite-foundation
 ```
 
-在合并现有草稿 PR 之前，不要擅自改写分支基线、rebase、force push，或把 `main`、`refactor/platform-message-model`、`feature/onebot-adapter` 混合合并。先检查 GitHub 上的 PR 关系。
+`feat/dnd5e-command-tools` 基于 `feature/onebot-adapter` 向前发展。在整理现有叠加分支之前，不要擅自改写分支基线、rebase、force push，或把 `main`、`refactor/platform-message-model`、`feature/onebot-adapter`、`feat/dnd5e-command-tools` 混合合并。先检查 GitHub 上的实际 PR 关系。
 
 分支名建议使用：
 
@@ -192,13 +241,13 @@ NapCat 是 QQ 收发层，`src.qq_bot` 是机器人聊天、记忆和规则工�
 .\.venv\Scripts\python.exe -m pytest --collect-only -q
 ```
 
-运行当前确认不依赖 PostgreSQL 的 QQ/平台/骰子回归测试：
+运行当前确认不依赖 PostgreSQL 的 QQ、平台、命令、骰子和 DND5e 回归测试：
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q tests/test_platform_models.py tests/test_platform_chat_boundary.py tests/test_discord_message_mapper.py tests/test_discord_request_context.py tests/test_message_processor_fakenitro.py tests/test_onebot_event_mapper.py tests/test_onebot_transport.py tests/test_onebot_chat_gateway.py tests/test_qq_bot_entrypoint.py tests/test_optional_postgres_chat.py tests/test_sqlite_conversation_memory.py tests/test_dice_engine.py tests/test_dice_tool_calling.py
+.\.venv\Scripts\python.exe -m pytest -q tests/test_command_registry.py tests/test_dice_engine.py tests/test_dnd5e_rules.py tests/test_dnd5e_tool_calling.py tests/test_rule_system_registry.py tests/test_trpg_repository.py tests/test_character_draft_workflow.py tests/test_dnd5e_character_import.py tests/test_dnd5r_xlsx_import.py tests/test_onebot_event_mapper.py tests/test_onebot_file_transfer.py tests/test_dnd5r_qq_character_commands.py tests/test_sqlite_conversation_memory.py tests/test_qq_bot_entrypoint.py tests/test_platform_models.py
 ```
 
-截至提交 `561f4f8`，上述回归结果为 **62 passed**。如果 Windows 测试环境拒绝使用系统临时目录，可在仓库内临时指定：
+发布 `f3f4c59` 前，上述不依赖 PostgreSQL 的针对性回归结果为 **97 passed**。如果 Windows 测试环境拒绝使用系统临时目录，可在仓库内临时指定：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests/test_dice_engine.py -q --basetemp=.local-test-temp
@@ -222,15 +271,21 @@ NapCat 是 QQ 收发层，`src.qq_bot` 是机器人聊天、记忆和规则工�
 
 当前上游存在一个需要以后单独处理的环境矛盾：README 标注 Python 3.13，`.devcontainer/Dockerfile` 使用 Python 3.11.5，而 `requirements.txt` 固定 `numpy==1.26.4`。该 NumPy 版本无法在 Python 3.13 上直接安装。Phase 0 不修改依赖，只记录事实。
 
-## 当前开发状态（更新至 2026-08-13）
+## 当前开发状态（更新至 2026-08-14）
 
-当前工作分支：`feature/onebot-adapter`
+截至本次核对，GitHub 最新开发分支为 `feat/dnd5e-command-tools`，已推送提交为：
 
-当前已推送提交：`561f4f8 feat: expose dice through modular tool calling`
+```text
+f3f4c59 chore: ignore codex test temp
+26ddb08 feat: import dnd5r sheets from qq
+6f458ee feat: add dnd5r xlsx draft import
+3d3debf feat: add shared trpg action and persistence layer
+8071e02 feat: wire dnd5e into qq runtime
+999900d feat: add dnd5e rule plugin
+eee7695 feat: add portable command registry
+```
 
-草稿 PR：[PR #3](https://github.com/ViceAdmiralGrafSpee/Dice-Bot/pull/3)
-
-当前采用叠加分支：`feature/onebot-adapter` 建立在 `refactor/platform-message-model` 之上。PR #3 的前置是平台消息边界 [PR #2](https://github.com/ViceAdmiralGrafSpee/Dice-Bot/pull/2)。在 GitHub 上整理合并顺序前，不要把本地旧 `main` 强行合入这两个分支。
+该分支建立在 `feature/onebot-adapter@c7689a2` 之上；每次开发前仍必须查询远端，因为分支状态可能继续变化。旧叠加关系中，`feature/onebot-adapter` 建立在 `refactor/platform-message-model` 之上，草稿 [PR #3](https://github.com/ViceAdmiralGrafSpee/Dice-Bot/pull/3) 的前置是平台消息边界 [PR #2](https://github.com/ViceAdmiralGrafSpee/Dice-Bot/pull/2)。整理合并顺序前不要把旧 `main` 强行混入这些分支。
 
 已经完成：
 
@@ -246,28 +301,119 @@ NapCat 是 QQ 收发层，`src.qq_bot` 是机器人聊天、记忆和规则工�
 - Python Dice Engine 和不经过 LLM 的 `.r 1d100`、`.r 2d6+3` 命令。
 - 平台无关工具注册表，以及由 LLM 调用的 `roll_dice`。
 - 工具随机数和总数由 Python 锁定；LLM 只负责表述。LLM 二次表述失败时仍返回权威骰子结果。
+- 平台无关的传统 `CommandRegistry`，现有 `.r` 已迁入统一命令框架。
+- 平台无关的规则系统注册边界 `RuleSystemRegistry`。
+- DND5e 2014 基础规则插件及确定性 d20 检定引擎。
+- 传统命令 `.dnd5e check`，支持普通、优势、劣势和明确加减值。
+- LLM Tool `dnd5e_check`；骰值、取高/取低和总值由 Python 锁定。
+- QQ runtime 同时注册传统命令和 DND5e Tool。
+- `CommandRegistry` 已支持异步 handler，传统命令可在未来安全等待 SQLite，而不会阻塞 QQ 事件循环。
+- 已建立平台无关的 `ActionContext` / `ActionResult` / `Action` 边界。
+- `.dnd5e check` 与 `dnd5e_check` Tool 已调用同一个 `Dnd5eCheckAction`；参数入口不同，但规则执行与结构化权威结果只有一份。
+- 已建立独立的 `data/trpg.sqlite3` 数据边界、schema 版本记录和异步 Repository。
+- Character 与 Campaign 通过多对多参团记录关联；同一角色可加入多个团并保留各团独立状态。
+- 已建立 `CharacterServiceRegistry`，在写数据库前按 `ruleset_key` 选择规则专用 Character Service。
+- 已建立共享 `ImportCharacterAction` 和首个 `Dnd5eCharacterService`；当前支持内部标准格式 `dice_bot_json_v1`，最小校验角色名、2014 版标识和可选的 1–20 级等级。
+- DND5r XLSX 草稿流程已接入 QQ：同一用户在同一会话上传文件后可使用 `.pc import`，再以 `.pc preview <草稿ID>` 查看，并用精确口令 `确认 <草稿ID>` 入库。
+- 腾讯云 Ubuntu VPS 已通过 `dice-bot.service` 生产运行，并设置开机启动和自动重启。
+- GitHub 主仓库到 Gitee 的单向 Pull 镜像已建立。
 
 当前没有完成：
 
 - SQLite 用户长期档案、长期摘要和记忆候选审核。
-- COC、DND、WINNING GIRLS 等规则系统工具。
-- Campaign、Character、规则状态、成长和 Log 数据结构。
+- Campaign Service / Action、Character 查询和修改，以及规则状态、成长和 Log 的业务逻辑。
+- DND5e 2014 角色卡的 QQ 导入入口；当前 QQ XLSX 入口只面向独立的 DND5r / 2024 规则服务。
+- 可持久化、可中断恢复的 Workflow / Session 多轮任务层。
+- “自然语言启动并完成一张 DND5e 角色卡创建”的端到端 Agent 场景。
+- `.pc` 的查询、修改、切换当前角色等日常管理命令，以及 `.st` 等传统角色卡命令；目前 `.pc` 只包含 XLSX 草稿导入、预览和确认。
+- COC、完整 DND5e 角色规则、WINNING GIRLS 等系统插件。
+- QQ 规则资料 RAG / `search_rules` Tool；实际资料应只放本地或 VPS，不进入公开仓库。
 - QQ 图片下载和多模态理解。
 - OneBot 回复消息正文获取、撤回/编辑等高级事件。
-- VPS 生产部署、自动启动、备份和监控。
+- VPS 自动化源码同步、备份、健康检查和监控。
 - 将叠加草稿 PR 整理、审查并合并到 `main`。
+
+## 下一阶段架构重点
+
+优先顺序：
+
+1. 保持统一异步 `CommandRegistry` 和共享 Action 边界。
+2. 为 DND5r 草稿增加人工纠正字段的交互入口，并补全 `.pc` 日常管理命令。
+3. 建立规则分流的 Campaign Service 和对应 Action。
+4. 建立可持久化 Workflow / Session 多轮任务层。
+5. 完成首个 Agent 验收场景：“自然语言启动并完成一张 DND5e 角色卡创建”。
+6. 再将 `.st` 等传统命令接入同一套 Character Service。
+
+AgentRuntime 的目标依赖方向是：
+
+```text
+AgentRuntime → AIService → BaseProvider
+                           ├─ GeminiProvider
+                           ├─ GeminiCustomProvider
+                           ├─ DeepSeekProvider
+                           ├─ OpenAICompatibleProvider
+                           └─ Grok / Custom 兼容路径
+```
+
+DeepSeek 特有的 `reasoning_content`、Tool Calling 协议差异或未来模型适配，只能进入 `DeepSeekProvider` 或专用 Adapter，不能写死到 AgentRuntime。
+
+### TRPG SQLite 数据基础
+
+本地已建立平台无关的 `src/trpg/` 数据层，默认使用独立的 `data/trpg.sqlite3`，不混入聊天记忆数据库：
+
+1. `Campaign` 保存团名、规则系统、聊天位置和创建者等团级信息。
+2. `Character` 是独立角色本体，不直接从属于某一个 Campaign。
+3. `CampaignCharacter` 是角色与团之间的多对多参团记录；同一角色可以加入多个 Campaign，并分别保存本团别名和 `state_data`，避免把不同团的 HP 等临时状态互相覆盖。
+4. `sheet_data` 和 `state_data` 均带版本号并以 JSON 保存，具体字段以后由 DND5e、COC、WINNING GIRLS 等规则插件校验，LLM 不得直接写数据库。
+5. Repository 提供创建、读取、建立参团关系、双向列出关系，以及角色导入草稿的持久化和原子确认；没有硬删除。
+6. 数据库当前为 schema v2，重复初始化不会清空数据；加入团时会拒绝规则系统不一致的角色。
+
+Character 导入采用两级边界：Action 先交给 `CharacterServiceRegistry` 按规则系统分流，再由对应规则的 Character Service 校验和调用 Repository。DND5r 的 QQ XLSX 入口已经复用草稿 Action；DND5e 2014 暂无外部文件入口，不应将两个规则版本混用。
+
+### DND5r / 2024 XLSX 草稿导入
+
+现实样本已确认应按 D&D 2024 修订规则处理，项目内使用独立规则标识 `dnd5r`，不得与现有的 `dnd5e`（2014）服务混用。当前已完成安全的“XLSX → CharacterDraft → 预览 → 明确确认 → Character”后台流程：
+
+1. 通用 `WorkbookInspector` 读取 Sheet、隐藏状态、非空单元格、公式、公式缓存、合并区域和基础诊断，不把 Excel 排版直接当数据库结构。
+2. 模板通过 Sheet 和锚点单元格形成结构指纹；不按文件名识别。目前现实样本形成两类声明式 Profile：悲灵 2024 模板和中文标签相邻模板。
+3. DND5r 规则插件提供最小 Character Schema，并只把确定性较高的姓名、职业、等级、种族、六项属性、HP、AC、先攻、速度等映射到草稿。
+4. `.st` 中尚未解释的技能和熟练标记保存在 `extensions`；整个工作簿检查快照和未映射区域仍随草稿保留，不丢弃 Homebrew 或陌生字段。
+5. 每个草稿字段保留原文件哈希、Sheet、Cell、公式缓存和来源片段。格式无法转换时记为 ERROR；合法但超出建议范围时记为 WARNING，程序不自动纠正。
+6. Draft 完整内容持久化在 `data/trpg.sqlite3` 的独立草稿表，重启后仍可预览；只有草稿所有者可以查看和确认。
+7. 存在 ERROR 时确认会被程序拒绝；WARNING 允许用户明确承担风险后保留原值。确认 Action 还要求用户提供精确口令 `确认 <草稿ID>`，确认前绝不会创建正式 Character。
+8. `Dnd5rCharacterService` 在确认时再次校验 Schema，并在同一个 SQLite 事务中完成“创建角色 + 标记草稿已确认”。重复确认返回同一个角色，不会复制。
+9. QQ 已有受限文件读取、草稿预览和明确确认入口。仍未完成 Agent Tool、字段修正界面和 TemplateProfile 数据库；确认 Action 仍不得注册成由 LLM 自主调用的 Tool。
+
+QQ 文件流程是：NapCat 文件事件 → 平台无关 `MessageFile` → 受大小限制的临时下载 → XLSX Importer → 保存草稿 Action → 预览；用户发送精确确认口令后才调用确认 Action。最近文件只在内存中保留 5 分钟，并按平台、用户和会话隔离；临时 XLSX 分析后删除。六份私人 XLSX 只作为本地压力测试样本，不得提交到公开仓库。
 
 ## 重要文件地图
 
 - `src/qq_bot.py`：QQ 正式启动入口和最小运行时初始化。
 - `src/chat/platform/onebot/`：NapCat/OneBot 映射、传输、请求上下文和消息路由。
+- `src/chat/platform/onebot/file_transfer.py`：通过 OneBot `get_file` 或 NapCat 提供的 URL 受限读取文件，并短时关联“先传文件、后发命令”的两条 QQ 消息。
 - `src/chat/platform/`：平台无关消息与请求协议。
 - `src/chat/services/chat_service.py`：共享聊天编排；不应重新绑定 `discord.Message`。
 - `src/chat/memory/conversation_repository.py`：SQLite 最近会话记录。
 - `src/chat/dice/engine.py`：权威随机数和骰子计算。
 - `src/chat/dice/commands.py`：`.r` 快速命令。
 - `src/chat/dice/tool.py`：LLM 可调用的 `roll_dice` 定义。
+- `src/chat/commands/runtime.py`：平台无关传统命令请求、结果、注册与分发。
+- `src/chat/actions/runtime.py`：命令与 LLM Tool 共享的异步业务动作协议和权威结构化结果。
+- `src/chat/actions/import_character.py`：所有命令和 Agent 共用的角色导入 Action；不直接识别 QQ 或模型协议。
+- `src/chat/actions/character_draft.py`：保存、预览和确认草稿的共享 Action；未来命令与 Agent 必须复用。
+- `src/chat/rules/runtime.py`：平台无关规则系统注册边界。
+- `src/chat/rules/dnd5e/`：DND5e 2014 检定 Action、引擎、命令、Tool、规则插件及来源说明。
+- `src/chat/rules/dnd5e/character_service.py`：DND5e 2014 标准角色卡的校验和持久化 Service。
+- `src/chat/rules/dnd5r/character_schema.py`：DND5r / 2024 最小 Character Schema；与 2014 Schema 分离。
+- `src/chat/rules/dnd5r/character_service.py`：确认后的 DND5r 二次校验和正式角色入库服务。
+- `src/chat/rules/dnd5r/xlsx_importer.py`：将已识别 XLSX 确定性映射为待确认 CharacterDraft，不写数据库。
+- `src/chat/rules/dnd5r/character_commands.py`：QQ 可用的 `.pc import`、草稿预览和精确确认路由，只调用共享 Action。
 - `src/chat/tools/runtime.py`：通用工具注册、Provider 格式转换和执行边界；COC/DND 工具应复用这里。
+- `src/trpg/importing/`：规则无关的 SourceSnapshot、WorkbookInspection、TemplateProfile、CharacterDraft、来源链、序列化、预览和确认服务。
+- `src/trpg/models.py`：规则无关的 Campaign、Character 和多对多参团记录模型。
+- `src/trpg/repository.py`：独立 TRPG SQLite 初始化、角色/团数据、草稿持久化和原子确认。
+- `src/trpg/characters/runtime.py`：按规则系统分流 Character Service 的注册表和导入数据边界。
+- `src/chat/platform/onebot/persistent_chat.py`：先记录 QQ 消息，再优先分发传统命令，未匹配且被 @ 时进入聊天核心。
 - `docs/NAPCAT_LOCAL_TEST.md`：本地 NapCat、正式 QQ 入口、记忆和骰子测试说明。
 
 ## 不会随 Git 自动迁移的数据
@@ -278,6 +424,8 @@ NapCat 是 QQ 收发层，`src.qq_bot` 是机器人聊天、记忆和规则工�
 - `data/memory.sqlite3`：QQ 最近会话记录；需要记忆时单独备份。
 - `data/chat.db`：本地聊天设置。
 - `data/world_book.sqlite3`：旧世界书 SQLite 数据。
+- `data/trpg.sqlite3`：正式角色、Campaign、参团状态、导入草稿及来源检查快照。
+- 未来的 Workflow、RAG 索引数据库及 `data/rag_sources/` 私人规则资料。
 - NapCat 的 QQ 登录状态和本地配置目录。
 
 不要把这些文件临时取消忽略后提交到 GitHub。
@@ -288,11 +436,15 @@ NapCat 是 QQ 收发层，`src.qq_bot` 是机器人聊天、记忆和规则工�
 
 ```text
 请先完整阅读 MAINTAINING.md 和 docs/NAPCAT_LOCAL_TEST.md，然后检查当前分支、git status、origin、upstream 和最近三个提交。
-当前工作基线是 origin/feature/onebot-adapter，提交 561f4f8；不要从旧 main 直接开发，不要 rebase 或 force push。
+不要根据本段记录硬猜最新分支；先 fetch 并核对 GitHub 远端。截至 2026-08-14，已确认的最新开发基线是 origin/feat/dnd5e-command-tools@f3f4c59。
+不要从旧 main 或 feature/onebot-adapter 直接开发，不要 rebase 或 force push。
 不要读取、显示或提交 .env 和 data 目录中的真实数据。
 修改前先说明范围，一个 commit 只完成一个容易解释的目标，完成后运行相关回归测试。
-LLM 只负责自然语言理解与表述；骰子、规则状态和数据库修改必须由 Python 决定。
-新增 COC/DND/WINNING GIRLS 功能时，优先作为独立规则工具模块注册到 src/chat/tools，不要把规则写进 OneBot Adapter 或 Prompt。
+LLM 负责意图理解、交互、工具选择和表述；骰子、规则状态、角色数据、数据库写入和结算必须由 Python 决定。
+传统命令和自然语言 Agent 必须共享底层 Service；不要把规则写进 OneBot Adapter 或 Prompt。
+AgentRuntime 必须保持 Provider 无关，DeepSeek 特有协议只放在 DeepSeekProvider 或专用 Adapter。
+VPS 生产目录是 /home/ubuntu/apps/Dice-Bot；部署不得覆盖 .env、.venv/ 或 data/，不要在未确认其为正确 Git 仓库前直接 git pull。
+GitHub 是主版本源，Gitee 仅是 GitHub → Gitee 的单向 Pull 部署镜像，不要默认从 Gitee 回推 GitHub。
 ```
 
 如果 GitHub 上还没有当前本地分支或最新 commit，另一台电脑无法取得这些工作。切换电脑前应先确认当前分支已经有意地 commit 并 push；不要用复制 `.env` 的方式同步秘密。

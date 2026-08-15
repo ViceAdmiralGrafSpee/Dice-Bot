@@ -7,6 +7,8 @@ from src.qq_bot import (
     DEFAULT_QQ_AI_MODEL,
     QQBotSettings,
     QQConfigurationError,
+    create_qq_command_registry,
+    create_qq_tool_registry,
     initialize_qq_chat_core,
     load_qq_settings,
     process_onebot_events,
@@ -26,6 +28,7 @@ def test_load_settings_uses_safe_deepseek_default() -> None:
 
     assert settings.ai_model == DEFAULT_QQ_AI_MODEL
     assert settings.reconnect_seconds == 5.0
+    assert settings.max_xlsx_bytes == 10 * 1024 * 1024
 
 
 def test_non_deepseek_model_does_not_require_deepseek_key() -> None:
@@ -36,6 +39,37 @@ def test_non_deepseek_model_does_not_require_deepseek_key() -> None:
     settings = load_qq_settings(environ)
 
     assert settings.ai_model == "openai_compatible:gpt-4o"
+
+
+@pytest.mark.asyncio
+async def test_qq_runtime_registers_traditional_dice_command() -> None:
+    registry = create_qq_command_registry()
+
+    assert await registry.dispatch("ordinary chat") is None
+    assert await registry.dispatch(".r") is not None
+    assert await registry.dispatch(".dnd5e check") is not None
+    assert await registry.dispatch(".dnd5r check") is None
+
+
+@pytest.mark.asyncio
+async def test_qq_runtime_registers_pc_import_when_draft_service_exists() -> None:
+    registry = create_qq_command_registry(
+        character_draft_service=SimpleNamespace()
+    )
+
+    result = await registry.dispatch(".pc")
+
+    assert result is not None
+    assert "角色卡命令" in result.content
+
+
+def test_qq_runtime_registers_dice_and_dnd5e_llm_tools() -> None:
+    registry = create_qq_tool_registry()
+
+    assert [item.name for item in registry.declarations()] == [
+        "roll_dice",
+        "dnd5e_check",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -63,6 +97,15 @@ def test_load_settings_rejects_non_websocket_url(url: str) -> None:
     environ["ONEBOT_WS_URL"] = url
 
     with pytest.raises(QQConfigurationError, match="WebSocket"):
+        load_qq_settings(environ)
+
+
+@pytest.mark.parametrize("value", ["0", "101", "ten"])
+def test_load_settings_rejects_invalid_xlsx_limit(value: str) -> None:
+    environ = _valid_env()
+    environ["QQ_MAX_XLSX_MB"] = value
+
+    with pytest.raises(QQConfigurationError, match="QQ_MAX_XLSX_MB"):
         load_qq_settings(environ)
 
 

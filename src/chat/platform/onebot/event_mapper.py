@@ -11,6 +11,7 @@ from src.chat.platform.models import (
     ConversationContext,
     ConversationKind,
     IncomingMessage,
+    MessageFile,
     RepliedMessage,
 )
 
@@ -68,8 +69,11 @@ def _sender_name(event: Mapping[str, Any]) -> str:
     return ""
 
 
-def _message_text_from_segments(event: Mapping[str, Any]) -> tuple[str, str | None]:
+def _message_text_from_segments(
+    event: Mapping[str, Any],
+) -> tuple[str, str | None, tuple[MessageFile, ...]]:
     text_parts: list[str] = []
+    files: list[MessageFile] = []
     reply_id: str | None = None
     self_id = _string(event.get("self_id"))
 
@@ -91,8 +95,25 @@ def _message_text_from_segments(event: Mapping[str, Any]) -> tuple[str, str | No
         elif segment_type == "face":
             face_id = _string(data.get("id"))
             text_parts.append(f"[QQ表情:{face_id}]" if face_id else "[QQ表情]")
+        elif segment_type == "file":
+            file_name = _string(data.get("file") or data.get("file_name"))
+            file_id = _string(data.get("file_id") or data.get("file"))
+            size_value = data.get("file_size")
+            try:
+                file_size = int(size_value) if size_value is not None else None
+            except (TypeError, ValueError):
+                file_size = None
+            if file_id and file_name:
+                files.append(
+                    MessageFile(
+                        file_id=file_id,
+                        name=file_name,
+                        size=file_size,
+                        url=_string(data.get("url")) or None,
+                    )
+                )
 
-    return "".join(text_parts).strip(), reply_id
+    return "".join(text_parts).strip(), reply_id, tuple(files)
 
 
 def _message_text_from_cq(event: Mapping[str, Any]) -> tuple[str, str | None]:
@@ -142,9 +163,10 @@ def map_onebot_message(event: Mapping[str, Any]) -> IncomingMessage:
     user_id = _string(event.get("user_id"))
     user_name = _sender_name(event) or user_id
     if _segments(event):
-        text, reply_id = _message_text_from_segments(event)
+        text, reply_id, files = _message_text_from_segments(event)
     else:
         text, reply_id = _message_text_from_cq(event)
+        files = ()
 
     timestamp_value = event.get("time")
     timestamp = None
@@ -164,4 +186,5 @@ def map_onebot_message(event: Mapping[str, Any]) -> IncomingMessage:
         conversation=_conversation(event, user_name),
         timestamp=timestamp,
         replied_message=replied_message,
+        files=files,
     )

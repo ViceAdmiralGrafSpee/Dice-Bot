@@ -493,7 +493,7 @@ class ChatService:
             # 骰子式再抄一遍（例如“🎲 1d6 = 2”），这里仅移除这种独立成行的
             # 开头复述，保留后续的人格化说明。
             if ai_response and authoritative_outputs:
-                ai_response = self._remove_repeated_dice_result_lines(
+                ai_response = self._remove_repeated_authoritative_result_lines(
                     ai_response,
                     _captured_tool_records,
                 )
@@ -563,17 +563,21 @@ class ChatService:
             return ChatResult(content="抱歉，处理你的消息时出现了问题，请稍后再试。")
 
     @staticmethod
-    def _remove_repeated_dice_result_lines(
+    def _remove_repeated_authoritative_result_lines(
         ai_response: str,
         captured_tool_records: List[Dict[str, Any]],
     ) -> str:
-        """移除模型在回复开头重复输出的骰子结果行。"""
+        """移除模型在回复开头重复输出的 Python 权威结果行。"""
         dice_results: List[tuple[str, str]] = []
+        exact_outputs: List[str] = []
         for record in captured_tool_records:
-            if record.get("name") != "roll_dice":
-                continue
             response = record.get("response")
             if not isinstance(response, dict):
+                continue
+            authoritative_output = response.get("authoritative_output")
+            if isinstance(authoritative_output, str) and authoritative_output:
+                exact_outputs.append(authoritative_output)
+            if record.get("name") != "roll_dice":
                 continue
             result = response.get("result")
             if not isinstance(result, dict):
@@ -583,14 +587,21 @@ class ChatService:
             if isinstance(notation, str) and isinstance(total, (int, float)):
                 dice_results.append((notation, str(total)))
 
-        if not dice_results:
+        if not dice_results and not exact_outputs:
             return ai_response
 
-        def is_repeated_result_line(line: str) -> bool:
+        def normalize(line: str) -> str:
             normalized = "".join(line.lower().split()).strip("*_`")
+            return normalized.rstrip("。.!！*_`")
+
+        normalized_exact_outputs = {normalize(output) for output in exact_outputs}
+
+        def is_repeated_result_line(line: str) -> bool:
+            normalized = normalize(line)
+            if normalized in normalized_exact_outputs:
+                return True
             if normalized.startswith("🎲"):
                 normalized = normalized[1:].strip("*_`")
-            normalized = normalized.rstrip("。.!！*_`")
             return any(
                 normalized.startswith(
                     f"{''.join(notation.lower().split())}="
