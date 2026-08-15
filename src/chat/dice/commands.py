@@ -40,6 +40,7 @@ def register_dice_commands(
         "r",
         create_roll_command_handler(engine or DiceEngine()),
         aliases=("roll",),
+        category="dice",
     )
 
 

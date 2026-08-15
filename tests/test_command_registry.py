@@ -54,6 +54,28 @@ async def test_awaits_async_command_handler() -> None:
     )
 
 
+def test_category_metadata_groups_commands_and_aliases() -> None:
+    registry = CommandRegistry()
+    handler = RecordingHandler([])
+    registry.register(
+        "r", handler, aliases=("roll",), category="dice"
+    )
+    registry.register("dnd5e", handler, category="dice")
+    registry.register("help", handler, category="utility")
+
+    assert registry.names_for_category("dice") == {"r", "roll", "dnd5e"}
+    assert registry.names_for_category("utility") == {"help"}
+    assert registry.names_for_category("missing") == set()
+
+
+def test_category_is_optional() -> None:
+    registry = CommandRegistry()
+    handler = RecordingHandler([])
+    registry.register("echo", handler)
+
+    assert registry.names_for_category("dice") == set()
+
+
 def test_rejects_duplicate_command_or_alias() -> None:
     registry = CommandRegistry()
     handler = RecordingHandler([])

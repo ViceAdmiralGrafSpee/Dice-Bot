@@ -37,6 +37,7 @@ class CommandRegistry:
     """Register and dispatch dot-prefixed traditional commands."""
 
     _handlers: dict[str, CommandHandler] = field(default_factory=dict)
+    _categories: dict[str, str] = field(default_factory=dict)
 
     def register(
         self,
@@ -44,6 +45,7 @@ class CommandRegistry:
         handler: CommandHandler,
         *,
         aliases: tuple[str, ...] = (),
+        category: str | None = None,
     ) -> None:
         names = (name, *aliases)
         normalized_names = tuple(self._normalize_name(item) for item in names)
@@ -55,8 +57,19 @@ class CommandRegistry:
         )
         if duplicate is not None:
             raise ValueError(f"命令已注册：.{duplicate}")
+        normalized_category = category.strip() if category else ""
         for item in normalized_names:
             self._handlers[item] = handler
+            if category is not None:
+                self._categories[item] = normalized_category
+
+    def names_for_category(self, category: str) -> set[str]:
+        """Return the normalized names registered under ``category``."""
+        return {
+            name
+            for name, registered_category in self._categories.items()
+            if registered_category == category.strip()
+        }
 
     async def dispatch(
         self,

@@ -1,3 +1,4 @@
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -238,3 +239,87 @@ async def test_chat_keeps_python_result_even_if_llm_narration_fails(
     assert result.authoritative_outputs == ["🎲 2d6+3 = [4, 2] + 3 = 9"]
     assert result.tools_called == ["roll_dice"]
     assert request.execute_tool_call.await_args.kwargs["user_text"] == "帮我骰 2d6+3"
+
+
+# --- Platform-neutral LLM tool-call argument logs (redaction & limits) ---
+
+
+def test_tool_argument_summary_redacts_sensitive_keys() -> None:
+    from src.chat.tools.runtime import format_tool_argument_summary
+
+    summary = format_tool_argument_summary(
+        {
+            "expression": "1d20",
+            "api_key": "sk-secret-value",
+            "nested": {"token": "abc123", "safe": "keep"},
+        }
+    )
+
+    assert "sk-secret-value" not in summary
+    assert "abc123" not in summary
+    assert '"api_key": "[REDACTED]"' in summary
+    assert '"token": "[REDACTED]"' in summary
+    assert '"safe": "keep"' in summary
+    assert "1d20" in summary
+
+
+def test_tool_argument_summary_trims_long_values_and_summary() -> None:
+    from src.chat.tools.runtime import format_tool_argument_summary
+
+    long_value = "x" * 800
+    summary = format_tool_argument_summary(
+        {"note": long_value},
+        max_value_chars=100,
+        max_summary_chars=150,
+    )
+
+    assert "截断" in summary
+    assert ("x" * 100) in summary
+    # A summary that stays under the summary limit after value trimming is
+    # returned whole.
+    assert summary.endswith('"}')
+    assert "x" * 200 not in summary
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_call_logs_redacted_arguments(caplog) -> None:
+    import logging
+
+    from src.chat.tools.runtime import PortableToolService, ToolRegistry
+
+    registry = ToolRegistry()
+    async def handler(arguments, context):
+        return SimpleNamespace(data={"ok": True}, authoritative_output=None)
+
+    from src.chat.tools import ToolDefinition
+
+    registry.register(
+        ToolDefinition(
+            name="demo",
+            description="demo tool",
+            parameters={"type": "object", "properties": {}},
+            handler=handler,
+        )
+    )
+    service = PortableToolService(registry)
+
+    with caplog.at_level(logging.INFO, logger="src.chat.tools.runtime"):
+        payload = await service.execute_tool_call(
+            {
+                "name": "demo",
+                "arguments": {
+                    "expression": "1d20",
+                    "password": "super-secret",
+                },
+            },
+            user_id="10001",
+            platform="qq",
+        )
+
+    assert payload["ok"] is True
+    log_text = "\n".join(record.message for record in caplog.records)
+    assert "LLM 工具调用" in log_text
+    assert "super-secret" not in log_text
+    assert '"name": "demo"' in log_text
+    assert '"user_id": "10001"' in log_text
+    assert '"platform": "qq"' in log_text

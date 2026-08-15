@@ -27,6 +27,11 @@ load_dotenv()
 
 from src.chat.commands import CommandRegistry
 from src.chat.dice import register_dice_commands, register_dice_tools
+from src.chat.dice.gate import (
+    DiceCategoryGate,
+    load_qq_bot_admin_ids,
+    register_dice_gate_commands,
+)
 from src.chat.platform.onebot.chat_gateway import (
     ChatCore,
     handle_onebot_chat_event,
@@ -163,6 +168,7 @@ def create_qq_command_registry(
     character_draft_service: CharacterDraftService | None = None,
     character_management_service: CharacterManagementService | None = None,
     max_xlsx_bytes: int = DEFAULT_MAX_XLSX_BYTES,
+    dice_gate: DiceCategoryGate | None = None,
 ) -> CommandRegistry:
     """Build the traditional commands enabled by the QQ runtime."""
 
@@ -177,6 +183,8 @@ def create_qq_command_registry(
             character_management_service=character_management_service,
             max_xlsx_bytes=max_xlsx_bytes,
         )
+    if dice_gate is not None:
+        register_dice_gate_commands(registry, dice_gate)
     return registry
 
 
@@ -277,11 +285,14 @@ async def run_qq_bot(settings: QQBotSettings) -> None:
         schemas={"dnd5r": DND5R_CHARACTER_SCHEMA},
     )
     character_management_service = CharacterManagementService(trpg_repository)
+    dice_gate = DiceCategoryGate(admin_ids=load_qq_bot_admin_ids())
+    await dice_gate.initialize()
     command_registry = create_qq_command_registry(
         rule_systems,
         character_draft_service=character_draft_service,
         character_management_service=character_management_service,
         max_xlsx_bytes=settings.max_xlsx_bytes,
+        dice_gate=dice_gate,
     )
     confirmation_router = create_dnd5r_confirmation_router(
         character_draft_service,
@@ -306,6 +317,7 @@ async def run_qq_bot(settings: QQBotSettings) -> None:
             file_provider=OneBotIncomingFileProvider(client),
             recent_files=recent_files,
             text_router=confirmation_router,
+            dice_gate=dice_gate,
         )
 
     try:
