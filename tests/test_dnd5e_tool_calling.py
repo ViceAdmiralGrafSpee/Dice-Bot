@@ -394,3 +394,77 @@ async def test_chat_keeps_dnd5e_result_when_llm_narration_fails_or_repeats(
         )
     assert result.authoritative_outputs == [authoritative_output]
     assert result.tools_called == ["dnd5e_check"]
+
+
+@pytest.mark.asyncio
+async def test_dnd5e_tool_schema_exposes_structured_modifier_fields() -> None:
+    registry = ToolRegistry()
+    register_dnd5e_tools(registry, _fixed_engine(12))
+    service = PortableToolService(registry)
+
+    tools = await service.get_dynamic_tools_for_context(provider_type="deepseek")
+
+    function = tools[0]["function"]
+    properties = function["parameters"]["properties"]
+    assert function["name"] == "dnd5e_check"
+    assert set(properties) == {
+        "mode",
+        "modifier",
+        "ability_score",
+        "proficiency_bonus",
+        "misc_modifier",
+    }
+    assert properties["modifier"]["type"] == "integer"
+    assert properties["ability_score"]["type"] == "integer"
+    assert properties["proficiency_bonus"]["type"] == "integer"
+    assert properties["misc_modifier"]["type"] == "integer"
+    assert function["parameters"]["additionalProperties"] is False
+    assert "ability_score" in function["description"]
+    assert "proficiency_bonus" in function["description"]
+    assert "不得同时提供" in function["description"]
+
+    definition = registry.get("dnd5e_check")
+    assert definition is not None
+    raw_parameters = definition.parameters
+    assert raw_parameters["properties"]["ability_score"]["minimum"] == 1
+    assert raw_parameters["properties"]["ability_score"]["maximum"] == 30
+
+
+@pytest.mark.asyncio
+async def test_dnd5e_tool_handles_realistic_structured_attack_check() -> None:
+    registry = ToolRegistry()
+    register_dnd5e_tools(registry, _fixed_engine(13, 20))
+    service = PortableToolService(registry)
+
+    payload = await service.execute_tool_call(
+        {
+            "name": "dnd5e_check",
+            "arguments": {
+                "mode": "advantage",
+                "ability_score": 18,
+                "proficiency_bonus": 2,
+            },
+        },
+        user_id="10001",
+        platform="qq",
+    )
+
+    assert payload == {
+        "ok": True,
+        "tool": "dnd5e_check",
+        "result": {
+            "ruleset": "dnd5e",
+            "mode": "advantage",
+            "rolls": [13, 20],
+            "selected_roll": 20,
+            "modifier": 6,
+            "total": 26,
+            "modifier_breakdown": {
+                "ability_score": 18,
+                "ability_modifier": 4,
+                "proficiency_bonus": 2,
+                "misc_modifier": 0,
+            },
+        },
+        "authoritative_output": "🎲 DND 5e 优势检定：[13, 20] → 20 + 6 = 26",
+    }

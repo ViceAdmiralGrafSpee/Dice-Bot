@@ -1,6 +1,10 @@
 """D&D 5e (2014) rules kept separate from the future dnd5r plugin."""
 
-from .action import Dnd5eCheckAction, Dnd5eCheckRequest
+from .action import (
+    Dnd5eCheckAction,
+    Dnd5eCheckRequest,
+    resolve_check_modifier,
+)
 from .character_service import (
     DND5E_CHARACTER_SHEET_VERSION,
     DICE_BOT_JSON_V1,
@@ -12,6 +16,7 @@ from .engine import (
     D20RollMode,
     Dnd5eCheckError,
     Dnd5eEngine,
+    ability_modifier,
 )
 from .system import Dnd5eRuleSystem
 from .tool import create_dnd5e_check_tool, register_dnd5e_tools
@@ -21,6 +26,8 @@ __all__ = [
     "D20RollMode",
     "Dnd5eCheckError",
     "Dnd5eEngine",
+    "ability_modifier",
+    "resolve_check_modifier",
     "Dnd5eCheckAction",
     "Dnd5eCheckRequest",
     "Dnd5eCharacterService",

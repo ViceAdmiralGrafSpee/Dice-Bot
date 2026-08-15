@@ -10,6 +10,18 @@ import secrets
 
 MAX_ABS_CHECK_MODIFIER = 1_000_000
 
+MIN_ABILITY_SCORE = 1
+MAX_ABILITY_SCORE = 30
+
+
+def ability_modifier(ability_score: int) -> int:
+    """Authoritative D&D 5e ability modifier: floor((score - 10) / 2).
+
+    Python's integer floor division handles negative scores correctly,
+    for example 9 -> -1, 7 -> -2. Callers must validate the score range.
+    """
+    return (ability_score - 10) // 2
+
 
 class Dnd5eCheckError(ValueError):
     """A user-facing validation error for a D&D 5e check."""
