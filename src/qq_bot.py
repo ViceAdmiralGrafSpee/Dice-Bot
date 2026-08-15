@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 # constants are derived from the environment (for example VECTOR_MODE).
 load_dotenv()
 
-from src.chat.commands import CommandRegistry
+from src.chat.commands import CommandRegistry, register_help_command
 from src.chat.dice import register_dice_commands, register_dice_tools
 from src.chat.dice.gate import (
     DiceCategoryGate,
@@ -192,6 +192,7 @@ def create_qq_command_registry(
         register_dice_gate_commands(registry, dice_gate)
     if require_at_policy is not None:
         register_cmdat_command(registry, require_at_policy)
+    register_help_command(registry)
     return registry
 
 

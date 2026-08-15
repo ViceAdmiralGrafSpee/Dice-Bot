@@ -81,4 +81,10 @@ def register_dnd5e_commands(
             action or Dnd5eCheckAction(engine or Dnd5eEngine())
         ),
         category="dice",
+        description="DND 5e 规则命令",
+        usage=(
+            ".dnd5e check +5\n"
+            ".dnd5e check adv\n"
+            ".dnd5e check dis +2"
+        ),
     )

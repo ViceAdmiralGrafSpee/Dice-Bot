@@ -41,6 +41,13 @@ def register_dice_commands(
         create_roll_command_handler(engine or DiceEngine()),
         aliases=("roll",),
         category="dice",
+        description="通用骰点",
+        usage=(
+            ".r1d20\n"
+            ".r 2d6+3\n"
+            ".roll 1d100\n"
+            ".rd20"
+        ),
     )
 
 

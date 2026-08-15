@@ -180,6 +180,13 @@ def register_dnd5r_character_commands(
             character_management_service=character_management_service,
             max_xlsx_bytes=max_xlsx_bytes,
         ),
+        description="导入与管理 DND 5r 角色卡",
+        usage=(
+            ".pc import\n"
+            ".pc list\n"
+            ".pc preview <草稿ID>\n"
+            ".pc delete <角色ID>"
+        ),
     )
 
 

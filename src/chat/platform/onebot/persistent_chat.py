@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from src.chat.actions import ActionContext
-from src.chat.commands import CommandRegistry, CommandResult
+from src.chat.commands import CommandRegistry, CommandResult, normalize_command_text
 from src.chat.dice.gate import (
     DiceCategoryGate,
     QQ_SENDER_ROLE,
@@ -109,7 +109,7 @@ async def handle_persistent_onebot_chat_event(
     # QQ @ syntax. The event mapper keeps ``@<other>`` prefixes, so the
     # traditional-command check must run on the stripped text.
     command_text = strip_at_mentions(incoming.text) if is_group else incoming.text
-    is_traditional = command_text.strip().startswith(".")
+    is_traditional = normalize_command_text(command_text).startswith(".")
 
     # Step 1: explicit @ targeting. This decision lives in the OneBot adapter
     # layer and never reaches ActionContext or CommandRegistry. It applies only

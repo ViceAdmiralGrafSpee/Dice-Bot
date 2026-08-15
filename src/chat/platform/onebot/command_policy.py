@@ -29,6 +29,7 @@ from src.chat.commands import (
     CommandRegistry,
     CommandRequest,
     CommandResult,
+    normalize_command_text,
 )
 from src.chat.dice.gate import QQ_SENDER_ROLE, can_manage_group
 
@@ -89,8 +90,12 @@ def analyze_at_targeting(event: Mapping[str, Any]) -> AtTargeting:
 
 
 def is_traditional_command(text: str) -> bool:
-    """Whether ``text`` starts a traditional dot-prefixed command."""
-    return text.strip().startswith(".")
+    """Whether ``text`` starts a traditional dot-prefixed command.
+
+    Ideographic (``。``) and fullwidth (``．``) full stops are normalized to
+    the ASCII dot so require-at always agrees with ``CommandRegistry.dispatch``.
+    """
+    return normalize_command_text(text).startswith(".")
 
 
 def strip_at_mentions(text: str) -> str:
@@ -232,7 +237,12 @@ def register_cmdat_command(
     policy: RequireAtPolicy,
 ) -> None:
     """Register ``.cmdat`` when the require-at policy is installed."""
-    registry.register("cmdat", policy.create_control_handler())
+    registry.register(
+        "cmdat",
+        policy.create_control_handler(),
+        description="控制本群传统点号命令是否必须 @机器人",
+        usage=".cmdat status\n.cmdat on\n.cmdat off",
+    )
 
 
 def _now_iso() -> str:

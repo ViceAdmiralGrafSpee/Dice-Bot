@@ -22,6 +22,7 @@ from src.chat.commands import (
     CommandRegistry,
     CommandRequest,
     CommandResult,
+    normalize_command_text,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -84,20 +85,20 @@ def is_dice_category_command(text: str, registry: CommandRegistry) -> bool:
 
 def is_dicecmd_command(text: str) -> bool:
     """Return whether ``text`` is the ``.dicecmd`` control command."""
-    stripped = text.strip()
+    stripped = normalize_command_text(text)
     return stripped.lower().startswith(".dicecmd")
 
 
 def normalize_command_name(text: str, registry: CommandRegistry) -> str:
     """Return the normalized category command name matched by ``text``."""
-    stripped = text.strip()
+    stripped = normalize_command_text(text)
     without_dot = stripped[1:].lower() if stripped.startswith(".") else stripped
     name = _match_registered_name(without_dot, dice_category_command_names(registry))
     return name or without_dot
 
 
 def _matches_registered_names(text: str, names: set[str]) -> bool:
-    stripped = text.strip()
+    stripped = normalize_command_text(text)
     if not stripped.startswith("."):
         return False
     without_dot = stripped[1:].lower()
@@ -264,7 +265,12 @@ def register_dice_gate_commands(
     gate: DiceCategoryGate,
 ) -> None:
     """Register ``.dicecmd`` when the gate is installed."""
-    registry.register("dicecmd", gate.create_control_handler())
+    registry.register(
+        "dicecmd",
+        gate.create_control_handler(),
+        description="控制本群传统骰子/规则命令开关",
+        usage=".dicecmd status\n.dicecmd on\n.dicecmd off",
+    )
 
 
 def _now_iso() -> str:
