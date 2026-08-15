@@ -26,7 +26,7 @@ _DND5E_RULE_PATTERN = re.compile(
 )
 
 _DND5E_CHECK_PATTERN = re.compile(
-    r"检定|攻击|豁免|优势|劣势|d20|掷骰|骰|roll",
+    r"检定|攻击|豁免|优势|劣势",
     re.IGNORECASE,
 )
 

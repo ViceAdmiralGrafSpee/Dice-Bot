@@ -23,6 +23,7 @@ def _fixed_engine(*values: int) -> Dnd5eEngine:
     rolls = iter(values)
     return Dnd5eEngine(roll_d20=lambda: next(rolls))
 
+
 @pytest.mark.parametrize(
     ("message", "expected"),
     [
@@ -36,6 +37,13 @@ def _fixed_engine(*values: int) -> Dnd5eEngine:
         ("D&D 5e 来一次攻击检定", True),
         ("我在玩DND5e，请给我进行一次优势攻击检定", True),
         ("DND5e +5优势检定", True),
+        ("骰个d6", False),
+        ("来个2d6+3", False),
+        ("帮我做一次DND5e优势检定，加值5", True),
+        ("DND5e里帮我骰个d20", False),
+        ("DND5e里帮我骰1d20", False),
+        ("DND5e d20检定", True),
+        ("COC7里先帮我骰个1d100", False),
     ],
 )
 def test_dnd5e_tool_requires_explicit_current_message_request(
@@ -43,6 +51,44 @@ def test_dnd5e_tool_requires_explicit_current_message_request(
     expected: bool,
 ) -> None:
     assert message_requests_dnd5e_check(message) is expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("message", "expected_roll_dice", "expected_dnd5e_check"),
+    [
+        ("这是目前最后一关了", False, False),
+        ("骰个d6", True, False),
+        ("来个2d6+3", True, False),
+        ("帮我做一次DND5e优势检定，加值5", False, True),
+        ("D&D 5e 来一次攻击检定", False, True),
+        ("DND5e里帮我骰个d20", True, False),
+        ("DND5e里帮我骰1d20", True, False),
+        ("DND5e d20检定", False, True),
+        ("生成一个COC7调查员", False, False),
+        ("给我做一次COC7 SAN check", False, False),
+        ("COC7里先帮我骰个1d100", True, False),
+    ],
+)
+async def test_roll_dice_and_dnd5e_check_are_mutually_exclusive(
+    message: str,
+    expected_roll_dice: bool,
+    expected_dnd5e_check: bool,
+) -> None:
+    from src.chat.dice import register_dice_tools
+
+    registry = ToolRegistry()
+    register_dice_tools(registry)
+    register_dnd5e_tools(registry)
+    service = PortableToolService(registry)
+
+    tools = await service.get_dynamic_tools_for_context(
+        provider_type="deepseek", user_text=message
+    )
+    available_names = {tool["function"]["name"] for tool in tools}
+
+    assert ("roll_dice" in available_names) is expected_roll_dice
+    assert ("dnd5e_check" in available_names) is expected_dnd5e_check
 
 
 @pytest.mark.asyncio

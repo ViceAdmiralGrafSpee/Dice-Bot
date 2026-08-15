@@ -20,6 +20,19 @@ _DICE_EXPRESSION_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_])(?:\d{0,3})[dD]\d{1,5}(?:\s*[+-]\s*\d+)?"
     r"(?![A-Za-z0-9_])"
 )
+# A message that names a DND 5e (2014) rule check should be routed to the
+# dnd5e_check tool, never to the generic dice roller.
+_DND5E_RULE_PATTERN = re.compile(
+    r"(?:d\s*&\s*d|dnd|龙与地下城)\s*"
+    r"(?:5\s*e|第五版|2014(?:\s*版)?)"
+    r"|(?:5\s*e|第五版|2014(?:\s*版)?).{0,8}"
+    r"(?:d\s*&\s*d|dnd|龙与地下城)",
+    re.IGNORECASE,
+)
+_DND5E_CHECK_KEYWORD_PATTERN = re.compile(
+    r"检定|攻击|豁免|优势|劣势",
+    re.IGNORECASE,
+)
 _DICE_INTENT_PATTERN = re.compile(
     r"骰一下|骰一个|骰个|掷骰|投骰|丢骰|扔骰|摇骰|重骰|"
     r"检定|判定|抽签|随机(?:数|一下|决定|选择|抽取)|"
@@ -34,6 +47,10 @@ def message_requests_dice(text: str) -> bool:
 
     normalized = text.strip()
     if not normalized:
+        return False
+    if _DND5E_RULE_PATTERN.search(normalized) and _DND5E_CHECK_KEYWORD_PATTERN.search(
+        normalized
+    ):
         return False
     if _DICE_INTENT_PATTERN.search(normalized):
         return True

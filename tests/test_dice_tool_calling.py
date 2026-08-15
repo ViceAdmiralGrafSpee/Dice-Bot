@@ -36,6 +36,28 @@ def test_dice_intent_requires_current_message_request(
     assert message_requests_dice(message) is expected
 
 
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("这是目前最后一关了", False),
+        ("骰个d6", True),
+        ("来个2d6+3", True),
+        ("帮我做一次DND5e优势检定，加值5", False),
+        ("D&D 5e 来一次攻击检定", False),
+        ("DND5e里帮我骰个d20", True),
+        ("DND5e里帮我骰1d20", True),
+        ("DND5e d20检定", False),
+        ("生成一个COC7调查员", False),
+        ("给我做一次COC7 SAN check", False),
+        ("COC7里先帮我骰个1d100", True),
+    ],
+)
+def test_roll_dice_routing_does_not_steal_rule_checks(
+    message: str, expected: bool
+) -> None:
+    assert message_requests_dice(message) is expected
+
+
 @pytest.mark.asyncio
 async def test_roll_dice_is_hidden_and_rejected_for_ordinary_narration() -> None:
     registry = ToolRegistry()
