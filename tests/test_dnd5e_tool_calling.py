@@ -14,6 +14,7 @@ from src.chat.rules.dnd5e import (
     register_dnd5e_commands,
     register_dnd5e_tools,
 )
+from src.chat.rules.dnd5e.tool import message_requests_dnd5e_check
 from src.chat.services.chat_service import ChatService
 from src.chat.tools import PortableToolService, ToolRegistry
 
@@ -21,6 +22,65 @@ from src.chat.tools import PortableToolService, ToolRegistry
 def _fixed_engine(*values: int) -> Dnd5eEngine:
     rolls = iter(values)
     return Dnd5eEngine(roll_d20=lambda: next(rolls))
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("这是目前最后一关了", False),
+        ("看看我的角色卡列表", False),
+        ("生成一个COC7调查员", False),
+        ("给我做一次COC7 SAN check", False),
+        ("DND5e优势检定是怎么算的", False),
+        ("介绍一下DND5e豁免规则", False),
+        ("帮我做一次DND5e优势检定", True),
+        ("D&D 5e 来一次攻击检定", True),
+        ("我在玩DND5e，请给我进行一次优势攻击检定", True),
+        ("DND5e +5优势检定", True),
+    ],
+)
+def test_dnd5e_tool_requires_explicit_current_message_request(
+    message: str,
+    expected: bool,
+) -> None:
+    assert message_requests_dnd5e_check(message) is expected
+
+
+@pytest.mark.asyncio
+async def test_dnd5e_tool_is_hidden_for_coc_request() -> None:
+    registry = ToolRegistry()
+    register_dnd5e_tools(registry, _fixed_engine(12))
+    service = PortableToolService(registry)
+
+    tools = await service.get_dynamic_tools_for_context(
+        provider_type="deepseek",
+        user_text="生成一个COC7调查员",
+    )
+    payload = await service.execute_tool_call(
+        {
+            "name": "dnd5e_check",
+            "arguments": {"mode": "normal", "modifier": 0},
+        },
+        user_text="生成一个COC7调查员",
+    )
+
+    assert tools == []
+    assert "error" in payload
+    assert "authoritative_output" not in payload
+
+
+@pytest.mark.asyncio
+async def test_dnd5e_tool_is_available_for_explicit_dnd5e_check() -> None:
+    registry = ToolRegistry()
+    register_dnd5e_tools(registry, _fixed_engine(16, 7))
+    service = PortableToolService(registry)
+
+    tools = await service.get_dynamic_tools_for_context(
+        provider_type="deepseek",
+        user_text="帮我做一次DND5e优势检定，加值5",
+    )
+
+    assert len(tools) == 1
+    assert tools[0]["function"]["name"] == "dnd5e_check"
 
 
 @pytest.mark.asyncio

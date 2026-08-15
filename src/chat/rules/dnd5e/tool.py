@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 from typing import Any
 
 from src.chat.actions import ActionContext
@@ -15,6 +16,52 @@ from src.chat.tools import (
 
 from .action import Dnd5eCheckAction, Dnd5eCheckRequest
 from .engine import D20RollMode, Dnd5eCheckError, Dnd5eEngine
+
+_DND5E_RULE_PATTERN = re.compile(
+    r"(?:d\s*&\s*d|dnd|龙与地下城)\s*"
+    r"(?:5\s*e|第五版|2014(?:\s*版)?)"
+    r"|(?:5\s*e|第五版|2014(?:\s*版)?).{0,8}"
+    r"(?:d\s*&\s*d|dnd|龙与地下城)",
+    re.IGNORECASE,
+)
+
+_DND5E_CHECK_PATTERN = re.compile(
+    r"检定|攻击|豁免|优势|劣势|d20|掷骰|骰|roll",
+    re.IGNORECASE,
+)
+
+_DND5E_REQUEST_PATTERN = re.compile(
+    r"帮|请|给我|来(?:个|一次|一下)?|进行|做(?:个|一次|一下)?|"
+    r"掷|骰|roll",
+    re.IGNORECASE,
+)
+
+_DISCUSSION_PATTERN = re.compile(
+    r"怎么|如何|为什么|什么是|啥是|区别|规则|解释|介绍|"
+    r"机制|概率|多少|是否",
+)
+
+
+def message_requests_dnd5e_check(text: str) -> bool:
+    """Return whether this message explicitly requests a DND 5e (2014) check."""
+
+    normalized = text.strip()
+    if not normalized:
+        return False
+
+    if not _DND5E_RULE_PATTERN.search(normalized):
+        return False
+
+    if not _DND5E_CHECK_PATTERN.search(normalized):
+        return False
+
+    if _DND5E_REQUEST_PATTERN.search(normalized):
+        return True
+
+    return (
+        len(normalized) <= 32
+        and not _DISCUSSION_PATTERN.search(normalized)
+    )
 
 
 def create_dnd5e_check_tool(
@@ -86,6 +133,10 @@ def create_dnd5e_check_tool(
         },
         handler=dnd5e_check,
         category="dnd5e",
+        availability=lambda context: (
+            context.user_text is None
+            or message_requests_dnd5e_check(context.user_text)
+        ),
     )
 
 
