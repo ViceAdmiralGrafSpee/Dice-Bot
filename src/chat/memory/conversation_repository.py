@@ -211,5 +211,4 @@ class SQLiteConversationRepository:
                 "role": "user",
                 "parts": [f"这是本会话最近的对话记录:\n\n{history_text}"],
             },
-            {"role": "model", "parts": ["我已了解最近的对话"]},
         ]

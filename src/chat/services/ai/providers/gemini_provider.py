@@ -261,6 +261,14 @@ class GeminiProvider(BaseProvider):
             # 构建生成配置
             gen_config = self._build_generation_config(config)
 
+            # 提取 system message 并设置为系统指令
+            system_text = self._extract_system_text(messages)
+            if system_text:
+                gen_config.system_instruction = system_text
+                log.debug(
+                    f"已设置 system_instruction（共 {len(system_text)} 字符）"
+                )
+
             # 转换工具格式
             gemini_tools = None
             if tools:
@@ -355,6 +363,14 @@ class GeminiProvider(BaseProvider):
         try:
             # 构建生成配置
             gen_config = self._build_generation_config(config)
+
+            # 提取 system message 并设置为系统指令
+            system_text = self._extract_system_text(messages)
+            if system_text:
+                gen_config.system_instruction = system_text
+                log.debug(
+                    f"已设置 system_instruction（共 {len(system_text)} 字符）"
+                )
 
             # 工具格式已由 ToolService.get_dynamic_tools_for_context() 统一转换
             # Gemini Provider 接收的是 List[types.Tool] 格式
@@ -677,6 +693,100 @@ class GeminiProvider(BaseProvider):
 
         return gen_config
 
+    @staticmethod
+    def _extract_message_text(msg: Dict[str, Any]) -> Optional[str]:
+        """
+        从单条消息提取纯文本内容（用于 system message）。
+
+        支持格式：
+        - content: str
+        - content: [{"type": "text", "text": "..."}, ...]
+        - parts: str
+        - parts: list[str]
+        - parts: [{"text": "..."}, ...]
+
+        返回 None 表示无可提取文本。
+        """
+        content = msg.get("content")
+        parts_input = msg.get("parts")
+
+        fragments: List[str] = []
+
+        if parts_input is not None:
+            if isinstance(parts_input, str):
+                if parts_input:
+                    fragments.append(parts_input)
+            elif isinstance(parts_input, list):
+                for item in parts_input:
+                    if isinstance(item, str):
+                        if item:
+                            fragments.append(item)
+                    elif isinstance(item, dict):
+                        text = item.get("text")
+                        if text:
+                            fragments.append(text)
+        elif content is not None:
+            if isinstance(content, str):
+                if content:
+                    fragments.append(content)
+            elif isinstance(content, list):
+                for item in content:
+                    if isinstance(item, str):
+                        if item:
+                            fragments.append(item)
+                    elif isinstance(item, dict):
+                        if item.get("type") == "text":
+                            text = item.get("text", "")
+                            if text:
+                                fragments.append(text)
+
+        if not fragments:
+            return None
+        return "\n".join(fragments)
+
+    @staticmethod
+    def _extract_system_text(messages: List[Dict[str, Any]]) -> str:
+        """
+        提取 messages 中所有 system message 的纯文本，按原顺序合并。
+
+        多个 system message 之间使用 "\\n\\n" 分隔。
+        返回空字符串表示没有 system message。
+        """
+        system_fragments: List[str] = []
+        for msg in messages:
+            if msg.get("role") != "system":
+                continue
+            text = GeminiProvider._extract_message_text(msg)
+            if text:
+                system_fragments.append(text)
+        return "\n\n".join(system_fragments)
+
+    @staticmethod
+    def _merge_adjacent_contents(
+        contents: List[genai_types.Content],
+    ) -> List[genai_types.Content]:
+        """
+        合并相邻同 role 的 Content。
+
+        user + user -> 一条 user Content，parts 按顺序拼接
+        model + model -> 一条 model Content，parts 按顺序拼接
+
+        不改变图片 Part、函数调用 Part 的顺序。
+        仅作用于初始 messages 的格式转换。
+        """
+        if not contents:
+            return contents
+
+        merged: List[genai_types.Content] = []
+        for content in contents:
+            if merged and merged[-1].role == content.role:
+                if merged[-1].parts is None:
+                    merged[-1].parts = []
+                merged[-1].parts.extend(content.parts or [])
+            else:
+                merged.append(content)
+        return merged
+
     def _convert_messages_to_contents(
         self, messages: List[Dict[str, Any]]
     ) -> List[genai_types.Content]:
@@ -700,12 +810,24 @@ class GeminiProvider(BaseProvider):
             content = msg.get("content")
             parts_input = msg.get("parts")
 
-            # 转换角色 (assistant -> model)
-            gemini_role = (
-                "model"
-                if role == "assistant"
-                else ("user" if role == "user" else "model")
-            )
+            # system message 已由 _extract_system_text 提取为 system_instruction，此处直接跳过
+            if role == "system":
+                log.debug(
+                    f"跳过 system message（已用于 system_instruction）: {content}"
+                )
+                continue
+
+            # 转换角色：仅允许 assistant/model -> model，user -> user
+            # 未知角色保守跳过 + warning，避免未知 role 意外获得 model 权限
+            if role in ("assistant", "model"):
+                gemini_role = "model"
+            elif role == "user":
+                gemini_role = "user"
+            else:
+                log.warning(
+                    f"未知消息角色 '{role}'，跳过该消息以避免其获得 model 权限"
+                )
+                continue
 
             # 构建 Parts
             parts = []
@@ -844,7 +966,8 @@ class GeminiProvider(BaseProvider):
                     f"消息转换为空，跳过: role={role}, content={content}, parts={parts_input}"
                 )
 
-        return contents
+        # 合并相邻同角色 Content（仅作用于初始消息格式转换）
+        return self._merge_adjacent_contents(contents)
 
     def _process_response(
         self, response: genai_types.GenerateContentResponse, model_name: str
